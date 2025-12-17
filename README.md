@@ -1,4 +1,4 @@
-# 😃 Lipa ICT - System Automation Tools
+# Lipa ICT - System Automation Tools
 
 ![Status](https://img.shields.io/badge/Status-Active-success)
 ![Platform](https://img.shields.io/badge/Platform-Windows%20Server-blue)

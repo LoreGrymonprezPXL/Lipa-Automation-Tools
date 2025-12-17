@@ -21,7 +21,7 @@ This repository hosts essential automation scripts for Lipa ICT system administr
 ├── 📂 Backups/              # Scripts for data rotation and archiving
 ├── 📂 Security/             # Tools for credential encryption (XML)
 └── README.md
-
+```
 
 ## SMTP Credential Generator Script
 The `LipaBackupCredentials.ps1` script automates the creation of a secure, encrypted XML file for SMTP authentication (`noreply@itbeheer.be`). It ensures passwords are never stored in plaintext.

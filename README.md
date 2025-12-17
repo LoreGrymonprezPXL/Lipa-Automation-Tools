@@ -4,22 +4,22 @@
 ![Platform](https://img.shields.io/badge/Platform-Windows%20Server-blue)
 ![Language](https://img.shields.io/badge/PowerShell-5.1%20%7C%207-blue)
 
-## 📖 About
+## About this repo
 This repository hosts essential automation scripts for Lipa ICT system administration. These tools are designed to standardize backup procedures, secure credential management, and automate reporting.
 
 ### Key Features
-* **🔐 Security:** Securely store and retrieve credentials using DPAPI (XML) to avoid plaintext passwords in scripts.
-* **💾 Backups:** Automated rotation and logging for critical data.
-* **⚡ Deployment:** One-line installation commands for quick server setup.
+* **Security:** Securely store and retrieve credentials using DPAPI (XML) to avoid plaintext passwords in scripts.
+* **Backups:** Back-up script fully in powershell.
+* **Deployment:** One-line installation commands for quick setup.
 
 ---
 
-## 📂 Repository Structure
+## Repository Structure
 
 ```text
 .
-├── 📂 Backups/              # Scripts for data rotation and archiving
-├── 📂 Security/             # Tools for credential encryption (XML)
+├── Backups/              # Scripts for data rotation and archiving
+├── Security/             # Tools for credential encryption (XML)
 └── README.md
 ```
 

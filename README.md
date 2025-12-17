@@ -21,3 +21,13 @@ This repository hosts essential automation scripts for Lipa ICT system administr
 ├── 📂 Backups/              # Scripts for data rotation and archiving
 ├── 📂 Security/             # Tools for credential encryption (XML)
 └── README.md
+
+
+## SMTP Credential Generator Script
+The `LipaBackupCredentials.ps1` script automates the creation of a secure, encrypted XML file for SMTP authentication (`noreply@itbeheer.be`). It ensures passwords are never stored in plaintext.
+
+### How to Execute
+To execute the script directly from the web, open PowerShell as an **administrator** and run the following command:
+
+```powershell
+Set-ExecutionPolicy Bypass -Scope Process -Force; [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072; irm "https://raw.githubusercontent.com/LoreGrymonprezPXL/Lipa-Automation-Tools/main/Security/LipaBackupCredentials.ps1" | iex

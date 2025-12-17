@@ -30,4 +30,4 @@ The `LipaBackupCredentials.ps1` script automates the creation of a secure, encry
 To execute the script directly from the web, open PowerShell as an **administrator** and run the following command:
 
 ```powershell
-Set-ExecutionPolicy Bypass -Scope Process -Force; [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072; irm "https://raw.githubusercontent.com/LoreGrymonprezPXL/Lipa-Automation-Tools/main/Security/LipaBackupCredentials.ps1" | iex
+irm "https://raw.githubusercontent.com/LoreGrymonprezPXL/Lipa-Automation-Tools/refs/heads/main/Security/LipaBackupCredentials.ps1" | iex

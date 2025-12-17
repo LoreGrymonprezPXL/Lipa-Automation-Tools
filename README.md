@@ -18,7 +18,7 @@ This repository hosts essential automation scripts for Lipa ICT system administr
 
 ```text
 .
-├── Backups/              # Scripts for data rotation and archiving
+├── Backups/              # Scripts for data archiving
 ├── Security/             # Tools for credential encryption (XML)
 └── README.md
 ```

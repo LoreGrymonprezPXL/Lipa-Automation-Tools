@@ -1,12 +1,20 @@
 
 <#
 .SYNOPSIS
-  Voert een robuuste back-up uit met Robocopy en verstuurt een e-mail met een korte samenvatting.
-  Robocopy-output komt NIET in de mail body, maar in een aparte log.
-
+ Geautomatiseerd back-upsysteem voor de Briljant-omgeving met uitgebreide statuscontrole en rapportage.
+.DESCRIPTION
+    Dit script voert de volgende hoofdtaken uit:
+    1. Synchronisatie: Gebruikt Robocopy voor een efficiënte mirror-back-up naar een netwerklocatie.
+    2. Bitmask Analyse: Decodeert de Robocopy exitcodes naar menselijke taal (o.a. OK, Mismatch, Extra of Fout).
+    3. Foutafhandeling: Extraheert bij falen specifiek de foutmeldingen uit de hoofdlog voor snelle inspectie.
+    4. Rapportage: Genereert een gedetailleerde mail-body met statistieken (aantal bestanden, grootte, snelheid).
+    5. Logging & Historiek: Onderhoudt een lokaal logboek van alle runs en slaat gespecificeerde logs op per sessie.
+    6. Notificatie: Verstuurt een e-mail via beveiligde SMTP (SSL), waarbij logs optioneel worden bijgevoegd op basis van het resultaat.
+    
 .NOTES
-  Auteur: Lore (Lipa ICT)
-  Versie: V3.3 - Summary mail + SUCCESS/WARN/FAILED + exitcode decode in mail
+Auteur: Lore (Lipa ICT)
+    Versie: V5.0
+    Wijzigingen: Introductie van bitwise status-decoding, dynamische server-detectie en voorwaardelijke log-bijlagen.
 #>
 
 # =========================
@@ -24,19 +32,19 @@ $AttachLogsOn    = "WarnOrFailure"
 $RunServer       = $env:COMPUTERNAME
 
 # =========================
-# INTERN (niet aanpassen)
+# LOGGING PARAMS
 # =========================
 $RunStamp        = Get-Date -Format "yyyyMMdd_HHmmss"
 $DateNow         = Get-Date -Format "dd-MM-yyyy HH:mm:ss"
 
-$LogboekPath     = Join-Path $LogRoot "backuplog.txt"                  # historiek
+$LogboekPath     = Join-Path $LogRoot "backuplog.txt"                   # timerke
 $RoboLogPath     = Join-Path $LogRoot "Robocopy_$RunStamp.log"          # FULL robocopy log
 $MailLogPath     = Join-Path $LogRoot "MailSummary_$RunStamp.txt"       # mail body (kort)
 $ErrorLogPath    = Join-Path $LogRoot "Errors_$RunStamp.txt"            # extract errors (alleen bij FAILED)
 
 Clear-Host
 
-# --- LIPA LOGO ---
+# --- LIPA LOGO (danku Niels) ---
 $LipaLogo = @"
  ___       ___  ________  ________
 |\  \     |\  \|\   __  \|\   __  \
@@ -48,7 +56,7 @@ $LipaLogo = @"
 "@
 Write-Host $LipaLogo -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Green
-Write-Host "Briljant Back-up Script V4.0" -ForegroundColor White
+Write-Host "Briljant Back-up Script V5.0" -ForegroundColor White
 Write-Host "========================================" -ForegroundColor Green
 
 # --- LOGS & DIRECTORIES ---
@@ -65,8 +73,7 @@ Write-Host ""
 # --- CREDENTIAL CHECK ---
 if (-not (Test-Path $CredentialPath)) {
     Write-Host "FATALE FOUT: SMTP credentialbestand niet gevonden: $CredentialPath" -ForegroundColor Red
-    Write-Host "Maak dit eenmalig aan met:" -ForegroundColor Yellow
-    Write-Host '  Get-Credential | Export-Clixml -Path "C:\BackupBriljant\SmtpCredential.xml"' -ForegroundColor DarkGray
+    Write-Host "De handleiding voor het aanmaken van SmtpCredential.xml bevindt zich in de sharepoint." -ForegroundColor Yellow
     return
 }
 $Credential = Import-Clixml -Path $CredentialPath
@@ -91,7 +98,7 @@ function Get-ServerFromPath {
     
 }
 
-$SourceServer = Get-ServerFromPath -Path $Source
+$SourceServer = Get-ServerFromPath -Path $Source #Dynamish checken voor server name (nodig voor in Lipa cat te komen)
 $DestServer   = Get-ServerFromPath -Path $Destination
 
 function Get-RobocopyStatus {
@@ -184,7 +191,7 @@ function Get-RoboLabel {
     ($parts -join " + ")
 }
 
-# Uitleg per bit (0/1/2/4/8/16) — bitmask zoals robocopy documentatie
+# Uitleg per bit (0/1/2/4/8/16) — bitmask zoals robocopy documentatie (online)
 function Get-RoboBitExplainLines {
     param([int]$Code)
 
@@ -207,7 +214,7 @@ function Get-RoboBitExplainLines {
 }
 
 # =========================
-# START HISTORIEK
+# START TIMER (logboek)
 # =========================
 "start $DateNow" | Add-Content -Path $LogboekPath -Encoding UTF8
 
@@ -225,8 +232,7 @@ Write-Host ""
 & robocopy.exe "$Source" "$Destination" `
     /E /ZB /R:2 /W:5 `
     /LOG:"$RoboLogPath" /NP | Out-Null
-
-# BELANGRIJK: exitcode direct na robocopy ophalen
+    
 $RobocopyExitCode = $LASTEXITCODE
 $status = Get-RobocopyStatus -Code $RobocopyExitCode
 
@@ -264,14 +270,13 @@ Write-Host ""
 
 
 # =========================
-# MAIL BODY (KORT + DECODE)
+# MAIL BODY 
 # =========================
 $summary  = Get-RobocopySummaryFromLog -Path $RoboLogPath
 $label    = Get-RoboLabel -Code $RobocopyExitCode
 $bitLines = Get-RoboBitExplainLines -Code $RobocopyExitCode
 
-# Opbouw: 1 keer Set-Content, daarna eventueel Add-Content
-
+#Opbouw van de email body
 @(
     "Briljant Backup - Statusrapport"
     "========================================"
@@ -326,7 +331,7 @@ if ($status.Failed) {
 }
 
 # =========================
-# HISTORIEK AFSLUITEN
+# END TIMER (logboek)
 # =========================
 "einde $EndDate" | Add-Content -Path $LogboekPath -Encoding UTF8
 "Status Code: $RobocopyExitCode" | Add-Content -Path $LogboekPath -Encoding UTF8
@@ -334,7 +339,7 @@ if ($status.Failed) {
 
 
 # =========================
-# MAIL VERZENDEN
+# EMAIL VERZENDEN
 # =========================
 $MailBody = Get-Content -Path $MailLogPath -Raw
 
@@ -373,4 +378,3 @@ catch {
     Write-Host "Fout bij versturen e-mail: $($_.Exception.Message)" -ForegroundColor Red
     Write-Host "Tip: check SMTP settings + credential xml." -ForegroundColor DarkRed
 }
-

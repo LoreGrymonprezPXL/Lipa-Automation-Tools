@@ -127,8 +127,8 @@ function Get-RobocopyStatus {
         if ($Code -band $k) { $hit += $flags[$k] }
     }
 
-    $failed = (($Code -band 8) -ne 0) -or (($Code -band 16) -ne 0)
-    $warn   = (-not $failed) -and ( (($Code -band 2) -ne 0) -or (($Code -band 4) -ne 0) )
+    $failed = ($Code -ge 16)
+    $warn = (-not $failed) -and (($Code -band 8) -ne 0)
 
     $level =
         if ($failed) { "FAILED" }

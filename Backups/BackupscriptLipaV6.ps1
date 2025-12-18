@@ -304,11 +304,11 @@ $bitLines = Get-RoboBitExplainLines -Code $RobocopyExitCode
     " - Historiek    : $LogboekPath"
     ""
     "Samenvatting (Robocopy):"
-    ($summary.DirsLine  ? $summary.DirsLine  : "Dirs  : (niet gevonden in log)")
-    ($summary.FilesLine ? $summary.FilesLine : "Files : (niet gevonden in log)")
-    ($summary.BytesLine ? $summary.BytesLine : "Bytes : (niet gevonden in log)")
-    ($summary.TimesLine ? $summary.TimesLine : $null)
-    ($summary.SpeedLine ? $summary.SpeedLine : $null)
+    $(if ($summary.DirsLine)  { $summary.DirsLine }  else { "Dirs  : (niet gevonden in log)" })
+    $(if ($summary.FilesLine) { $summary.FilesLine } else { "Files : (niet gevonden in log)" })
+    $(if ($summary.BytesLine) { $summary.BytesLine } else { "Bytes : (niet gevonden in log)" })
+    $(if ($summary.TimesLine) { $summary.TimesLine })
+    $(if ($summary.SpeedLine) { $summary.SpeedLine })
     ""
 ) | ForEach-Object { $_ } | Where-Object { $_ -ne $null } | Set-Content -Path $MailLogPath -Encoding UTF8
 

@@ -34,7 +34,7 @@ The BackupscriptLipaV6.ps1 is designed to back up the Briljant environment **(C:
 ## Features
 - **Robocopy Mirroring:** Efficiently syncs source and destination.
 - **Bitmask Analysis:** Decodes Robocopy exit codes into human-readable status (OK, Mismatch, Extra, or Failure).
-- **Automated Reporting:** Sends a detailed HTML/Text email summary to backup@lipa.be.
+- **Automated Reporting:** Sends a detailed Text email summary to backup@lipa.be.
 - **Smart Logging:** Automatically attaches logs to the email only if warnings or failures are detected.
 ## How to Execute
 Open PowerShell as an **administrator** and run:

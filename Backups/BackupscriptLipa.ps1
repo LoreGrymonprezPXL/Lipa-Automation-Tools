@@ -299,7 +299,7 @@ $bitLines = Get-RoboBitExplainLines -Code $RobocopyExitCode
     "Target host : $DestServer"
     ""
     "Waar logs te vinden:"
-    " - Server naam  : $RunServer"
+    " - Opgeslagen op: $RunServer"
     " - Robocopy log : $RoboLogPath"
     " - Error extract: $ErrorLogPath"
     " - Historiek    : $LogboekPath"

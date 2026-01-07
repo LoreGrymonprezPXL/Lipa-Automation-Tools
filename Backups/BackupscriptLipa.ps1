@@ -13,7 +13,7 @@
     
 .NOTES
 Auteur: Lore (Lipa ICT)
-    Versie: V6.0 [Final product]
+    Versie: V6.1 [made the body of the mail more representative]
     Advise always welcome in how to improve.
 #>
 
@@ -56,14 +56,14 @@ $LipaLogo = @"
 "@
 Write-Host $LipaLogo -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Green
-Write-Host "Briljant Back-up Script V6.0" -ForegroundColor White
+Write-Host "Briljant Back-up Script V6.1" -ForegroundColor White
 Write-Host "========================================" -ForegroundColor Green
 
 # --- LOGS & DIRECTORIES ---
 $null = New-Item -ItemType Directory -Path $LogRoot -Force -ErrorAction SilentlyContinue
 
 Write-Host ""
-Write-Host "LOG BESTANDEN (deze run):" -ForegroundColor Yellow
+Write-Host "LOG BESTANDEN:" -ForegroundColor Yellow
 Write-Host "  Robocopy log : $RoboLogPath" -ForegroundColor DarkGray
 Write-Host "  Mail summary : $MailLogPath" -ForegroundColor DarkGray
 Write-Host "  Error extract: $ErrorLogPath" -ForegroundColor DarkGray
@@ -299,6 +299,7 @@ $bitLines = Get-RoboBitExplainLines -Code $RobocopyExitCode
     "Target host : $DestServer"
     ""
     "Waar logs te vinden:"
+    " - Server naam  : $RunServer"
     " - Robocopy log : $RoboLogPath"
     " - Error extract: $ErrorLogPath"
     " - Historiek    : $LogboekPath"

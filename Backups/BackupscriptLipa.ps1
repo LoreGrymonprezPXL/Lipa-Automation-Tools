@@ -106,9 +106,9 @@ function Get-RobocopyStatus {
 
     $flags = [ordered]@{
         1  = "Bestanden gekopieerd"
-        2  = "Extra bestanden/dirs gedetecteerd (destination bevat meer dan source)"
-        4  = "Mismatches gedetecteerd (verschillen in attributes/timestamps)"
-        8  = "FOUTEN: 1 of meerdere bestanden konden niet gekopieerd worden"
+        2  = "Bestanden gekopieerd"
+        4  = "Bestanden gekopieerd"
+        8  = "Enkele bestanden overgeslagen (in gebruik/permission issues)"
         16 = "FATALE FOUT: Robocopy kon niet correct uitvoeren (bv. toegang/path)"
     }
 

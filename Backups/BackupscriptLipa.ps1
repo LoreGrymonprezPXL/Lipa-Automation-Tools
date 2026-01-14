@@ -13,7 +13,7 @@
     
 .NOTES
 Auteur: Lore (Lipa ICT)
-    Versie: V6.1 [made the body of the mail more representative]
+    Versie: V6.2 [Made robot copy status be less negative]
     Advise always welcome in how to improve.
 #>
 
@@ -56,7 +56,7 @@ $LipaLogo = @"
 "@
 Write-Host $LipaLogo -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Green
-Write-Host "Briljant Back-up Script V6.1" -ForegroundColor White
+Write-Host "Briljant Back-up Script V6.2" -ForegroundColor White
 Write-Host "========================================" -ForegroundColor Green
 
 # --- LOGS & DIRECTORIES ---

@@ -12,7 +12,7 @@ $LipaLogo = @"
 "@ 
 Write-Host $LipaLogo -ForegroundColor Green
 Write-Host "========================================" -ForegroundColor Green
-Write-Host "      AvePoint Account Script V5.9" -ForegroundColor White
+Write-Host "      Avepoint Account Script V5.9" -ForegroundColor White
 Write-Host "========================================" -ForegroundColor Green
 Write-Host ""
 

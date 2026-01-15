@@ -199,7 +199,7 @@ Ticket Info: AvePoint Service Account Created
 Date: $DateLog
 Tenant: $InitialDomain
 Account: $UserPrincipalName
-Created by: Lipa Script V3.5
+Created by: Lipa Script V4
 Settings:
  - DisplayName: $DisplayName
  - Role: Global Administrator

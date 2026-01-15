@@ -18,6 +18,7 @@ This repository hosts essential automation scripts for Lipa ICT system administr
 
 ```text
 .
+├── Avepoint/             # Scripts for user creation
 ├── Backups/              # Scripts for data archiving (Briljant Environment)
 ├── Security/             # Tools for credential encryption (XML)
 └── README.md
@@ -29,7 +30,7 @@ Open PowerShell as an **administrator** and run:
 ```powershell
 irm "https://raw.githubusercontent.com/LoreGrymonprezPXL/Lipa-Automation-Tools/refs/heads/main/Security/LipaBackupCredentials.ps1" | iex
 ```
-## 2. Backup: Briljant Backup Script (V6)
+## 2. Backup: Briljant Backup Script (V6.2)
 The BackupscriptLipaV6.ps1 is designed to back up the Briljant environment **(C:\Briljant)** to a network share.
 ### Features
 - **Robocopy Mirroring:** Efficiently syncs source and destination.
@@ -42,3 +43,10 @@ Open PowerShell as an **administrator** and run:
 irm "https://raw.githubusercontent.com/LoreGrymonprezPXL/Lipa-Automation-Tools/refs/heads/main/Backups/BackupscriptLipaV6.ps1" | iex
 ```
 [IMPORTANT] The script is needs the Smtpcredential.xml to function!
+
+## 3. Avepoint user creation script
+This script creates a user that we at Lipa use for our Avepoint backup. This script automates this process and creates a fitting document as a summery.
+```powershell
+irm "https://raw.githubusercontent.com/LoreGrymonprezPXL/Lipa-Automation-Tools/refs/heads/main/Avepoint/AvepointAccount.ps1" | iex
+```
+

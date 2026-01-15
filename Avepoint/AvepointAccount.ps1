@@ -5,14 +5,14 @@ $LipaLogo = @"
 |\  \      |\  \|\   __  \|\   __  \    
 \ \  \     \ \  \ \  \|\  \ \  \|\  \   
  \ \  \     \ \  \ \   ____\ \   __  \  
-  \ \  \____ \ \  \ \  \___|\ \  \ \  \ 
-   \ \_______\\ \__\ \__\    \ \__\ \__\
-    \|_______| \|__|\|__|     \|__|\|__| 
+  \ \  \____\ \  \ \  \___|\ \  \ \  \ 
+   \ \_______\ \__\ \__\    \ \__\ \__\
+    \|_______|\|__|\|__|     \|__|\|__| 
                                         
 "@ 
 Write-Host $LipaLogo -ForegroundColor Green
 Write-Host "========================================" -ForegroundColor Green
-Write-Host "      AvePoint Account Script V4" -ForegroundColor White
+Write-Host "      AvePoint Account Script V5.2" -ForegroundColor White
 Write-Host "========================================" -ForegroundColor Green
 Write-Host ""
 
@@ -21,27 +21,26 @@ if (-not (Get-Module -ListAvailable Microsoft.Graph.Authentication)) {
     Write-Host "Module installeren..." -ForegroundColor Yellow
     Install-Module Microsoft.Graph.Authentication -Scope CurrentUser -Force -AllowClobber
     Install-Module Microsoft.Graph.Users -Scope CurrentUser -Force -AllowClobber
+    Install-Module Microsoft.Graph.Groups -Scope CurrentUser -Force -AllowClobber
     Install-Module Microsoft.Graph.Identity.DirectoryManagement -Scope CurrentUser -Force -AllowClobber
     Import-Module Microsoft.Graph.Authentication
 }
 
-# --- STAP 1: LOGIN (MET ERROR DETAILS) ---
+# --- STAP 1: LOGIN ---
 Write-Host "Vorige sessies verbreken..." -ForegroundColor Gray
 Disconnect-MgGraph -ErrorAction SilentlyContinue
 
 Write-Host "Login venster wordt geopend..." -ForegroundColor Yellow
 
 try {
-    Connect-MgGraph -Scopes "User.ReadWrite.All", "RoleManagement.ReadWrite.Directory", "Domain.Read.All"  -ErrorAction Stop
+    # Login zonder ForceRefresh voor stabiliteit
+    Connect-MgGraph -Scopes "User.ReadWrite.All", "Group.ReadWrite.All", "RoleManagement.ReadWrite.Directory", "Domain.Read.All" -ErrorAction Stop
 }
 catch {
     Write-Host ""
     Write-Host "LOGIN MISLUKT (CRITICAL ERROR)" -ForegroundColor Red
     Write-Host "--------------------------------------------------------" -ForegroundColor Red
     Write-Host "Foutmelding: $($_.Exception.Message)" -ForegroundColor Yellow
-    Write-Host "Type:        $($_.Exception.GetType().Name)" -ForegroundColor Gray
-    Write-Host "Detail:      $($_)" -ForegroundColor Gray
-    Write-Host "--------------------------------------------------------" -ForegroundColor Red
     return 
 }
 
@@ -49,7 +48,6 @@ $Context = Get-MgContext
 if (-not $Context) {
     Write-Host ""
     Write-Host "GEEN SESSIE GEVONDEN." -ForegroundColor Red
-    Write-Host "Het venster is mogelijk weggeklikt of geblokkeerd." -ForegroundColor Yellow
     return
 }
 
@@ -57,15 +55,31 @@ Write-Host "Ingelogd met: $($Context.Account)" -ForegroundColor Cyan
 Write-Host ""
 
 # --- STAP 2: CONFIGURATIE VRAGEN ---
-Write-Host "----------------------------------------" -ForegroundColor Cyan
-$InputName = Read-Host "Hoe moet het account heten? (Bijv: Test, AvePoint Backup) [Standaard: Avepoint Backup]"
+# A. Account Naam
+Write-Host "--- Account Instellingen ---" -ForegroundColor Cyan
+$InputName = Read-Host "Hoe moet het account heten? (Bijv: AvePoint Backup) [Standaard: Avepoint Backup]"
+if ([string]::IsNullOrWhiteSpace($InputName)) { $AccountNaam = "Avepoint Backup" } else { $AccountNaam = $InputName }
+Write-Host "Gekozen Naam: $AccountNaam" -ForegroundColor Green
+Write-Host ""
 
-if ([string]::IsNullOrWhiteSpace($InputName)) {
-    $AccountNaam = "Avepoint Backup"
+# B. Licentie Type (AANGEPAST)
+Write-Host "--- Licentie Type ---" -ForegroundColor Cyan
+Write-Host "[1] POOL Licentie (Volledige Tenant - Geen Security Group)" -ForegroundColor White
+Write-Host "[2] SINGLE Licentie (Selectief - Via Security Group)" -ForegroundColor White
+$ScopeChoice = Read-Host "Maak uw keuze (1 of 2)"
+
+$SecurityGroupName = $null
+$LicenseLogStatus = "Pool License (Full Tenant)"
+
+if ($ScopeChoice -eq "2") {
+    $InputGroup = Read-Host "Naam Security Group? [Standaard: Avepoint Backup]"
+    if ([string]::IsNullOrWhiteSpace($InputGroup)) { $SecurityGroupName = "Avepoint Backup" } else { $SecurityGroupName = $InputGroup }
+    Write-Host "Er zal een Security Group gemaakt worden: '$SecurityGroupName'" -ForegroundColor Yellow
+    $LicenseLogStatus = "Single License (Group: $SecurityGroupName)"
 } else {
-    $AccountNaam = $InputName
+    Write-Host "Pool Licentie geselecteerd (Geen groep nodig)." -ForegroundColor Gray
 }
-Write-Host "Gekozen DisplayNaam: $AccountNaam" -ForegroundColor Green
+Write-Host ""
 
 # --- GEGEVENS SAMENSTELLEN ---
 try {
@@ -73,27 +87,17 @@ try {
     $TenantName = $InitialDomain.Split(".")[0]
 }
 catch {
-    Write-Error "Kan domein niet ophalen. Login lijkt mislukt."
+    Write-Error "Kan domein niet ophalen."
     return
 }
 
-# SLIMME NAAM LOGICA:
-# 1. Email/Nickname 
 $ShortName = $AccountNaam.Split(" ")[0]
-
-# 2. DisplayName = De volledige naam 
 $DisplayName = $AccountNaam
-
-# Samenstellen
 $UserPrincipalName = "$ShortName@$InitialDomain"
 $MailNickname = $ShortName
 
-Write-Host "Ingestelde Email:    $UserPrincipalName" -ForegroundColor Gray
-Write-Host "----------------------------------------" -ForegroundColor Cyan
-Write-Host ""
-
 # --- WACHTWOORD LOGICA ---
-Write-Host "Kies een wachtwoord methode:" -ForegroundColor Yellow
+Write-Host "--- Beveiliging ---" -ForegroundColor Cyan
 Write-Host "[1] Eigen wachtwoord invoeren" -ForegroundColor White
 Write-Host "[2] Automatisch sterk wachtwoord genereren" -ForegroundColor White
 $PwChoice = Read-Host "Maak uw keuze (1 of 2)"
@@ -105,22 +109,16 @@ if ($PwChoice -eq "2") {
     $CharSet = "abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789!@#$%"
     $Rnd = New-Object System.Random
     $PlainPassword = (-join (1..16 | ForEach-Object { $CharSet[$Rnd.Next($CharSet.Length)] }))
-    
     $PasswordTypeUsed = "Generated (Random)"
     Write-Host "Wachtwoord gegenereerd." -ForegroundColor Green
 }
 else {
     $SecureInput = Read-Host -Prompt "Geef uw wachtwoord op" -AsSecureString
     $PlainPassword = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto([System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($SecureInput))
-    
     $PasswordTypeUsed = "Custom (User Input)"
 }
 
-# Maak het wachtwoord object voor Graph
-$PasswordProfile = @{
-    Password = $PlainPassword
-    ForceChangePasswordNextSignIn = $false
-}
+$PasswordProfile = @{ Password = $PlainPassword; ForceChangePasswordNextSignIn = $false }
 
 # --- GEBRUIKER AANMAKEN ---
 $NewUser = $null
@@ -138,10 +136,8 @@ try {
 }
 catch {
     $RawError = $_.Exception.Message
-    
     if ($RawError -match "Password cannot contain username") {
         Write-Host "FOUT: WACHTWOORD MAG GEBRUIKERSNAAM NIET BEVATTEN." -ForegroundColor Red
-        Write-Host "Je koos '$ShortName', dus dat woord mag NIET in je wachtwoord zitten." -ForegroundColor Yellow
         return
     }
     elseif ($RawError -match "Password") {
@@ -153,7 +149,7 @@ catch {
     try {
         $NewUser = Get-MgUser -UserId $UserPrincipalName -ErrorAction Stop
         Update-MgUser -UserId $NewUser.Id -PasswordProfile $PasswordProfile
-        Write-Host "Bestaande gebruiker gevonden & wachtwoord geüpdatet." -ForegroundColor Green
+        Write-Host "Bestaande gebruiker geüpdatet." -ForegroundColor Green
     }
     catch {
          Write-Error "CRITISCH: Kan gebruiker niet maken en niet vinden."
@@ -161,30 +157,53 @@ catch {
     }
 }
 
+# --- SECURITY GROUP AANMAKEN (ALLEEN BIJ SINGLE LICENSE) ---
+if ($SecurityGroupName) {
+    try {
+        $ExistingGroup = Get-MgGroup -Filter "displayName eq '$SecurityGroupName'" -ErrorAction SilentlyContinue
+        
+        if ($ExistingGroup) {
+            Write-Host "Security Group '$SecurityGroupName' bestaat al." -ForegroundColor Yellow
+        }
+        else {
+            $CleanNick = $SecurityGroupName.Replace(" ", "")
+            New-MgGroup -DisplayName $SecurityGroupName -MailEnabled:$false -SecurityEnabled:$true -MailNickname $CleanNick -ErrorAction Stop
+            Write-Host "Security Group '$SecurityGroupName' succesvol aangemaakt." -ForegroundColor Green
+        }
+    }
+    catch {
+        Write-Host "FOUT BIJ MAKEN GROEP: $($_.Exception.Message)" -ForegroundColor Red
+        $LicenseLogStatus = "Single License (Failed to create group: $($_.Exception.Message))"
+    }
+}
+
 # --- ROL TOEWIJZEN ---
 $GlobalAdminTemplateId = "62e90394-69f5-4237-9190-012177145e10" 
-$Role = Get-MgDirectoryRole | Where-Object { $_.RoleTemplateId -eq $GlobalAdminTemplateId }
-
-if ($null -eq $Role) {
-    Enable-MgDirectoryRole -RoleTemplateId $GlobalAdminTemplateId
-    $Role = Get-MgDirectoryRole | Where-Object { $_.RoleTemplateId -eq $GlobalAdminTemplateId }
-}
 
 try {
-    New-MgDirectoryRoleMemberByRef -DirectoryRoleId $Role.Id -BodyParameter @{
-        "@odata.id" = "https://graph.microsoft.com/v1.0/directoryObjects/$($NewUser.Id)"
+    $Role = Get-MgDirectoryRole -Filter "roleTemplateId eq '$GlobalAdminTemplateId'" -ErrorAction SilentlyContinue
+    if ($null -eq $Role) {
+        $RoleTemplate = Get-MgDirectoryRoleTemplate -Filter "id eq '$GlobalAdminTemplateId'"
+        Enable-MgDirectoryRole -RoleTemplateId $RoleTemplate.Id
+        $Role = Get-MgDirectoryRole -Filter "roleTemplateId eq '$GlobalAdminTemplateId'"
     }
-    Write-Host "Global Admin rechten toegewezen." -ForegroundColor Green
+
+    $Members = Get-MgDirectoryRoleMember -DirectoryRoleId $Role.Id
+    if ($Members.Id -contains $NewUser.Id) {
+        Write-Host "Rechten waren al correct." -ForegroundColor Yellow
+    }
+    else {
+        New-MgDirectoryRoleMemberByRef -DirectoryRoleId $Role.Id -BodyParameter @{ "@odata.id" = "https://graph.microsoft.com/v1.0/directoryObjects/$($NewUser.Id)" }
+        Write-Host "Global Admin rechten toegewezen." -ForegroundColor Green
+    }
 }
 catch {
-    Write-Host "Rechten waren al correct." -ForegroundColor Yellow
+    Write-Host "FOUT BIJ RECHTEN: $($_.Exception.Message)" -ForegroundColor Red
 }
 
 # --- SUMMARY FILE GENEREREN ---
 $DesktopPath = [Environment]::GetFolderPath("Desktop")
-
 $FileDate = Get-Date -Format "yyyyMMdd-HHmm"
-
 $FileName = "$DesktopPath\AvePoint_Setup_${TenantName}_${ShortName}_${FileDate}.txt"
 $DateLog = Get-Date -Format "yyyy-MM-dd HH:mm"
 
@@ -199,13 +218,13 @@ Ticket Info: AvePoint Service Account Created
 Date: $DateLog
 Tenant: $InitialDomain
 Account: $UserPrincipalName
-Created by: Lipa Script V4
+Created by: Lipa Script V5.2
 Settings:
  - DisplayName: $DisplayName
  - Role: Global Administrator
  - Location: BE (Belgium)
  - Password Type: $PasswordTypeUsed
- - License: None (Service Account)
+ - License Type: $LicenseLogStatus
 
 Log: Account successfully provisioned in Azure AD.
 "@
@@ -219,5 +238,16 @@ Write-Host "========================================" -ForegroundColor Green
 Write-Host "INFO IS OPGESLAGEN OP JE BUREAUBLAD:" -ForegroundColor Cyan
 Write-Host "-> $FileName" -ForegroundColor Yellow
 Write-Host ""
-Write-Host "Je kunt dit bestand nu openen voor de documentatie." -ForegroundColor Gray
-Write-Host "Verwijder dit bestand nadat je de gegevens in keeper hebt ingegeven!" -ForegroundColor Red
+
+# --- ACTIE REMINDERS ---
+if ($SecurityGroupName) {
+    # Alleen tonen bij SINGLE LICENTIE
+    Write-Host "----------------- ACTIE VEREIST -----------------" -ForegroundColor Magenta
+    Write-Host "Je hebt gekozen voor een SINGLE LICENTIE (via Groep)." -ForegroundColor Magenta
+    Write-Host "De Security Group '$SecurityGroupName' is aangemaakt." -ForegroundColor White
+    Write-Host "-> Voeg zelf de te back-uppen gebruikers toe in Admin Center!" -ForegroundColor Magenta
+    Write-Host "---------------------------------------------------" -ForegroundColor Magenta
+    Write-Host ""
+}
+
+Write-Host "Vergeet niet: Verwijder dit bestand na opslag in Keeper." -ForegroundColor Yellow

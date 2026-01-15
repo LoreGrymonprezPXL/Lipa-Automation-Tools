@@ -12,19 +12,28 @@ $LipaLogo = @"
 "@ 
 Write-Host $LipaLogo -ForegroundColor Green
 Write-Host "========================================" -ForegroundColor Green
-Write-Host "      AvePoint Account Script V5.2" -ForegroundColor White
+Write-Host "      AvePoint Account Script V5.3" -ForegroundColor White
 Write-Host "========================================" -ForegroundColor Green
 Write-Host ""
 
 # --- MODULE CHECK ---
+# We checken nu specifiek op de GROUPS module om de error te voorkomen
+if (-not (Get-Module -ListAvailable Microsoft.Graph.Groups)) {
+    Write-Host "Module 'Microsoft.Graph.Groups' ontbreekt. Installeren..." -ForegroundColor Yellow
+    Install-Module Microsoft.Graph.Groups -Scope CurrentUser -Force -AllowClobber
+}
+
 if (-not (Get-Module -ListAvailable Microsoft.Graph.Authentication)) {
-    Write-Host "Module installeren..." -ForegroundColor Yellow
+    Write-Host "Module 'Microsoft.Graph.Authentication' ontbreekt. Installeren..." -ForegroundColor Yellow
     Install-Module Microsoft.Graph.Authentication -Scope CurrentUser -Force -AllowClobber
     Install-Module Microsoft.Graph.Users -Scope CurrentUser -Force -AllowClobber
-    Install-Module Microsoft.Graph.Groups -Scope CurrentUser -Force -AllowClobber
     Install-Module Microsoft.Graph.Identity.DirectoryManagement -Scope CurrentUser -Force -AllowClobber
-    Import-Module Microsoft.Graph.Authentication
 }
+
+# Expliciet importeren om 'Command Not Found' te voorkomen
+Import-Module Microsoft.Graph.Authentication
+Import-Module Microsoft.Graph.Groups
+Import-Module Microsoft.Graph.Users
 
 # --- STAP 1: LOGIN ---
 Write-Host "Vorige sessies verbreken..." -ForegroundColor Gray
@@ -218,7 +227,7 @@ Ticket Info: AvePoint Service Account Created
 Date: $DateLog
 Tenant: $InitialDomain
 Account: $UserPrincipalName
-Created by: Lipa Script V5.2
+Created by: Lipa Script V5.3
 Settings:
  - DisplayName: $DisplayName
  - Role: Global Administrator

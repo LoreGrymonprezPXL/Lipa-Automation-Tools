@@ -25,14 +25,30 @@ if (-not (Get-Module -ListAvailable Microsoft.Graph.Authentication)) {
     Import-Module Microsoft.Graph.Authentication
 }
 
-# --- STAP 1: FORCEREN NIEUWE LOGIN ---
+# --- STAP 1: LOGIN ---
 Write-Host "Vorige sessies verbreken..." -ForegroundColor Gray
 Disconnect-MgGraph -ErrorAction SilentlyContinue
 
 Write-Host "Login venster wordt geopend..." -ForegroundColor Yellow
-Connect-MgGraph -Scopes "User.ReadWrite.All", "RoleManagement.ReadWrite.Directory", "Domain.Read.All"
+
+try {
+    Connect-MgGraph -Scopes "User.ReadWrite.All", "RoleManagement.ReadWrite.Directory", "Domain.Read.All" -ErrorAction Stop
+}
+catch {
+    Write-Host ""
+    Write-Host "Login geanuleerd of mislukt." -ForegroundColor Red
+    Write-Host "Het script stopt hier omdat er geen verbinding is." -ForegroundColor Yellow
+    return 
+}
 
 $Context = Get-MgContext
+if (-not $Context) {
+    Write-Host ""
+    Write-Host "Geen actieve sessie gevonden." -ForegroundColor Red
+    Write-Host "Heb je het venster weggeklikt? Probeer opnieuw." -ForegroundColor Yellow
+    return 
+}
+
 Write-Host "Ingelogd met: $($Context.Account)" -ForegroundColor Cyan
 Write-Host ""
 

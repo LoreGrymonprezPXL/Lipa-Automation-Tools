@@ -12,7 +12,8 @@ $LipaLogo = @"
 "@ 
 Write-Host $LipaLogo -ForegroundColor Green
 Write-Host "========================================" -ForegroundColor Green
-Write-Host "      AvePoint Account Script V5.3" -ForegroundColor White
+Write-Host "      AvePoint Account Script V5.4" -ForegroundColor White
+Write-Host "     (Always Ask Account Fix)" -ForegroundColor Gray
 Write-Host "========================================" -ForegroundColor Green
 Write-Host ""
 
@@ -33,7 +34,7 @@ Import-Module Microsoft.Graph.Authentication
 Import-Module Microsoft.Graph.Groups
 Import-Module Microsoft.Graph.Users
 
-# --- STAP 1: LOGIN ---
+# --- STAP 1: LOGIN (FIXED) ---
 $env:MSAL_USE_WAM = "false"
 Write-Host "Vorige sessies verbreken..." -ForegroundColor Gray
 Disconnect-MgGraph -ErrorAction SilentlyContinue
@@ -41,6 +42,7 @@ Disconnect-MgGraph -ErrorAction SilentlyContinue
 Write-Host "Login venster wordt geopend..." -ForegroundColor Yellow
 
 try {
+    # FIX: -Prompt SelectAccount dwingt ALTIJD het keuzescherm af
     Connect-MgGraph -Scopes "User.ReadWrite.All", "Group.ReadWrite.All", "RoleManagement.ReadWrite.Directory", "Domain.Read.All" -Prompt SelectAccount -ErrorAction Stop
 }
 catch {
@@ -69,7 +71,7 @@ if ([string]::IsNullOrWhiteSpace($InputName)) { $AccountNaam = "Avepoint Backup"
 Write-Host "Gekozen Naam: $AccountNaam" -ForegroundColor Green
 Write-Host ""
 
-# B. Licentie Type (AANGEPAST)
+# B. Licentie Type
 Write-Host "--- Licentie Type ---" -ForegroundColor Cyan
 Write-Host "[1] POOL Licentie (Volledige Tenant - Geen Security Group)" -ForegroundColor White
 Write-Host "[2] SINGLE Licentie (Selectief - Via Security Group)" -ForegroundColor White
@@ -225,7 +227,7 @@ Ticket Info: AvePoint Service Account Created
 Date: $DateLog
 Tenant: $InitialDomain
 Account: $UserPrincipalName
-Created by: Lipa Script V5.3
+Created by: Lipa Script V5.4
 Settings:
  - DisplayName: $DisplayName
  - Role: Global Administrator

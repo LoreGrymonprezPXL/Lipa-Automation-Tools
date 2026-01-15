@@ -13,7 +13,6 @@ $LipaLogo = @"
 Write-Host $LipaLogo -ForegroundColor Green
 Write-Host "========================================" -ForegroundColor Green
 Write-Host "      AvePoint Account Script V5.4" -ForegroundColor White
-Write-Host "     (Always Ask Account Fix)" -ForegroundColor Gray
 Write-Host "========================================" -ForegroundColor Green
 Write-Host ""
 
@@ -34,16 +33,17 @@ Import-Module Microsoft.Graph.Authentication
 Import-Module Microsoft.Graph.Groups
 Import-Module Microsoft.Graph.Users
 
-# --- STAP 1: LOGIN (FIXED) ---
+# --- STAP 1: LOGIN  ---
 $env:MSAL_USE_WAM = "false"
+
 Write-Host "Vorige sessies verbreken..." -ForegroundColor Gray
 Disconnect-MgGraph -ErrorAction SilentlyContinue
 
 Write-Host "Login venster wordt geopend..." -ForegroundColor Yellow
 
 try {
-    # FIX: -Prompt SelectAccount dwingt ALTIJD het keuzescherm af
-    Connect-MgGraph -Scopes "User.ReadWrite.All", "Group.ReadWrite.All", "RoleManagement.ReadWrite.Directory", "Domain.Read.All" -Prompt SelectAccount -ErrorAction Stop
+    # Gewoon standaard inloggen. Geen parameters die errors geven.
+    Connect-MgGraph -Scopes "User.ReadWrite.All", "Group.ReadWrite.All", "RoleManagement.ReadWrite.Directory", "Domain.Read.All" -ErrorAction Stop
 }
 catch {
     Write-Host ""

@@ -17,7 +17,6 @@ Write-Host "========================================" -ForegroundColor Green
 Write-Host ""
 
 # --- MODULE CHECK ---
-# We checken nu specifiek op de GROUPS module om de error te voorkomen
 if (-not (Get-Module -ListAvailable Microsoft.Graph.Groups)) {
     Write-Host "Module 'Microsoft.Graph.Groups' ontbreekt. Installeren..." -ForegroundColor Yellow
     Install-Module Microsoft.Graph.Groups -Scope CurrentUser -Force -AllowClobber
@@ -30,7 +29,6 @@ if (-not (Get-Module -ListAvailable Microsoft.Graph.Authentication)) {
     Install-Module Microsoft.Graph.Identity.DirectoryManagement -Scope CurrentUser -Force -AllowClobber
 }
 
-# Expliciet importeren om 'Command Not Found' te voorkomen
 Import-Module Microsoft.Graph.Authentication
 Import-Module Microsoft.Graph.Groups
 Import-Module Microsoft.Graph.Users

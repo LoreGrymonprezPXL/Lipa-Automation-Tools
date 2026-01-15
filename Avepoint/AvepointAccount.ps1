@@ -12,7 +12,7 @@ $LipaLogo = @"
 "@ 
 Write-Host $LipaLogo -ForegroundColor Green
 Write-Host "========================================" -ForegroundColor Green
-Write-Host "      AvePoint Account Script V3.5" -ForegroundColor White
+Write-Host "      AvePoint Account Script V4" -ForegroundColor White
 Write-Host "========================================" -ForegroundColor Green
 Write-Host ""
 
@@ -25,28 +25,32 @@ if (-not (Get-Module -ListAvailable Microsoft.Graph.Authentication)) {
     Import-Module Microsoft.Graph.Authentication
 }
 
-# --- STAP 1: LOGIN ---
+# --- STAP 1: LOGIN (MET ERROR DETAILS) ---
 Write-Host "Vorige sessies verbreken..." -ForegroundColor Gray
 Disconnect-MgGraph -ErrorAction SilentlyContinue
 
 Write-Host "Login venster wordt geopend..." -ForegroundColor Yellow
 
 try {
-    Connect-MgGraph -Scopes "User.ReadWrite.All", "RoleManagement.ReadWrite.Directory", "Domain.Read.All" -ErrorAction Stop
+    Connect-MgGraph -Scopes "User.ReadWrite.All", "RoleManagement.ReadWrite.Directory", "Domain.Read.All" -ForceRefresh -ErrorAction Stop
 }
 catch {
     Write-Host ""
-    Write-Host "Login geanuleerd of mislukt." -ForegroundColor Red
-    Write-Host "Het script stopt hier omdat er geen verbinding is." -ForegroundColor Yellow
+    Write-Host "LOGIN MISLUKT (CRITICAL ERROR)" -ForegroundColor Red
+    Write-Host "--------------------------------------------------------" -ForegroundColor Red
+    Write-Host "Foutmelding: $($_.Exception.Message)" -ForegroundColor Yellow
+    Write-Host "Type:        $($_.Exception.GetType().Name)" -ForegroundColor Gray
+    Write-Host "Detail:      $($_)" -ForegroundColor Gray
+    Write-Host "--------------------------------------------------------" -ForegroundColor Red
     return 
 }
 
 $Context = Get-MgContext
 if (-not $Context) {
     Write-Host ""
-    Write-Host "Geen actieve sessie gevonden." -ForegroundColor Red
-    Write-Host "Heb je het venster weggeklikt? Probeer opnieuw." -ForegroundColor Yellow
-    return 
+    Write-Host "GEEN SESSIE GEVONDEN." -ForegroundColor Red
+    Write-Host "Het venster is mogelijk weggeklikt of geblokkeerd." -ForegroundColor Yellow
+    return
 }
 
 Write-Host "Ingelogd met: $($Context.Account)" -ForegroundColor Cyan

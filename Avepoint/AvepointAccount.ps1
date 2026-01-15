@@ -34,6 +34,7 @@ Import-Module Microsoft.Graph.Groups
 Import-Module Microsoft.Graph.Users
 
 # --- STAP 1: LOGIN ---
+$env:MSAL_USE_WAM = "false"
 Write-Host "Vorige sessies verbreken..." -ForegroundColor Gray
 Disconnect-MgGraph -ErrorAction SilentlyContinue
 

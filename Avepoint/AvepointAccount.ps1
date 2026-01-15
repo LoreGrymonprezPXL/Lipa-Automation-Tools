@@ -41,8 +41,7 @@ Disconnect-MgGraph -ErrorAction SilentlyContinue
 Write-Host "Login venster wordt geopend..." -ForegroundColor Yellow
 
 try {
-    # Login zonder ForceRefresh voor stabiliteit
-    Connect-MgGraph -Scopes "User.ReadWrite.All", "Group.ReadWrite.All", "RoleManagement.ReadWrite.Directory", "Domain.Read.All" -ErrorAction Stop
+    Connect-MgGraph -Scopes "User.ReadWrite.All", "Group.ReadWrite.All", "RoleManagement.ReadWrite.Directory", "Domain.Read.All" -Prompt SelectAccount -ErrorAction Stop
 }
 catch {
     Write-Host ""

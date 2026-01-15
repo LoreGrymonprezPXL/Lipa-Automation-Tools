@@ -33,30 +33,39 @@ Import-Module Microsoft.Graph.Authentication
 Import-Module Microsoft.Graph.Groups
 Import-Module Microsoft.Graph.Users
 
-# --- STAP 1: STANDAARD LOGIN ---
-Write-Host "Vorige sessies verbreken..." -ForegroundColor Gray
+# --- STAP 1: STABIELE GRAPH LOGIN (DEVICE CODE) ---
+Write-Host "Vorige Microsoft Graph sessies verbreken..." -ForegroundColor Gray
 
-# Dit is de fix die bij jou werkte: Gewoon simpel uitloggen.
 Disconnect-MgGraph -ErrorAction SilentlyContinue
+Remove-Variable MgContext -ErrorAction SilentlyContinue
 
-Write-Host "Login venster wordt geopend..." -ForegroundColor Yellow
+Write-Host ""
+Write-Host "Device login starten..." -ForegroundColor Yellow
+Write-Host "Volg de instructies in de browser om in te loggen." -ForegroundColor Yellow
+Write-Host ""
 
 try {
-    # Standaard connectie zonder parameters die errors geven
-    Connect-MgGraph -Scopes "User.ReadWrite.All", "Group.ReadWrite.All", "RoleManagement.ReadWrite.Directory", "Domain.Read.All" -ErrorAction Stop
+    Connect-MgGraph `
+        -Scopes "User.ReadWrite.All","Group.ReadWrite.All","RoleManagement.ReadWrite.Directory","Domain.Read.All" `
+        -UseDeviceAuthentication `
+        -ContextScope Process `
+        -ErrorAction Stop
 }
 catch {
     Write-Host ""
     Write-Host "LOGIN MISLUKT (CRITICAL ERROR)" -ForegroundColor Red
     Write-Host "Foutmelding: $($_.Exception.Message)" -ForegroundColor Yellow
-    return 
+    return
 }
 
 $Context = Get-MgContext
 if (-not $Context) {
-    Write-Host "GEEN SESSIE GEVONDEN." -ForegroundColor Red
+    Write-Host "GEEN GELDIGE GRAPH SESSIE GEVONDEN." -ForegroundColor Red
     return
 }
+
+Write-Host "Succesvol ingelogd als: $($Context.Account)" -ForegroundColor Green
+
 
 # --- VEILIGHEIDSCHECK (MENSELIJK) ---
 Clear-Host

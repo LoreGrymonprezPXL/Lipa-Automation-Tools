@@ -5,14 +5,15 @@ $LipaLogo = @"
 |\  \      |\  \|\   __  \|\   __  \    
 \ \  \     \ \  \ \  \|\  \ \  \|\  \   
  \ \  \     \ \  \ \   ____\ \   __  \  
-  \ \  \____ \ \  \ \  \___|\ \  \ \  \ 
-   \ \_______\\ \__\ \__\    \ \__\ \__\
-    \|_______| \|__|\|__|     \|__|\|__| 
+  \ \  \____\ \  \ \  \___|\ \  \ \  \ 
+   \ \_______\ \__\ \__\    \ \__\ \__\
+    \|_______|\|__|\|__|     \|__|\|__| 
                                         
 "@ 
 Write-Host $LipaLogo -ForegroundColor Green
 Write-Host "========================================" -ForegroundColor Green
-Write-Host "      AvePoint Account Script V5.4" -ForegroundColor White
+Write-Host "      AvePoint Account Script V5.7" -ForegroundColor White
+Write-Host "        (Cache Cleaner Edition)" -ForegroundColor Gray
 Write-Host "========================================" -ForegroundColor Green
 Write-Host ""
 
@@ -33,38 +34,53 @@ Import-Module Microsoft.Graph.Authentication
 Import-Module Microsoft.Graph.Groups
 Import-Module Microsoft.Graph.Users
 
-# --- STAP 1: LOGIN  ---
+# --- STAP 1: LOGIN & CACHE CLEANUP ---
 $env:MSAL_USE_WAM = "false"
 
 Write-Host "Vorige sessies verbreken..." -ForegroundColor Gray
 Disconnect-MgGraph -ErrorAction SilentlyContinue
 
+
+$CachePath = "$env:USERPROFILE\.Graph"
+if (Test-Path $CachePath) {
+    Write-Host "Oude login-cache wissen..." -ForegroundColor Gray
+    Remove-Item $CachePath -Recurse -Force -ErrorAction SilentlyContinue
+}
+
 Write-Host "Login venster wordt geopend..." -ForegroundColor Yellow
 
 try {
-    # Gewoon standaard inloggen. Geen parameters die errors geven.
     Connect-MgGraph -Scopes "User.ReadWrite.All", "Group.ReadWrite.All", "RoleManagement.ReadWrite.Directory", "Domain.Read.All" -ErrorAction Stop
 }
 catch {
     Write-Host ""
     Write-Host "LOGIN MISLUKT (CRITICAL ERROR)" -ForegroundColor Red
-    Write-Host "--------------------------------------------------------" -ForegroundColor Red
     Write-Host "Foutmelding: $($_.Exception.Message)" -ForegroundColor Yellow
     return 
 }
 
 $Context = Get-MgContext
 if (-not $Context) {
-    Write-Host ""
     Write-Host "GEEN SESSIE GEVONDEN." -ForegroundColor Red
     return
 }
 
-Write-Host "Ingelogd met: $($Context.Account)" -ForegroundColor Cyan
+# --- VEILIGHEIDSCHECK ---
+Clear-Host
+Write-Host "--------------------------------------------------" -ForegroundColor Cyan
+Write-Host "              CONTROLEER JE LOGIN" -ForegroundColor White
+Write-Host "--------------------------------------------------" -ForegroundColor Cyan
+Write-Host "Je bent nu ingelogd als:" -ForegroundColor Gray
+Write-Host "$($Context.Account)" -ForegroundColor Yellow
 Write-Host ""
+Write-Host "CHECK: Is dit de juiste klant?" -ForegroundColor White
+Write-Host "JA  -> Druk op ENTER om door te gaan." -ForegroundColor Green
+Write-Host "NEE -> Sluit dit venster en begin opnieuw." -ForegroundColor Red
+Write-Host "--------------------------------------------------" -ForegroundColor Cyan
+$null = Read-Host "Druk op ENTER..."
 
 # --- STAP 2: CONFIGURATIE VRAGEN ---
-# A. Account Naam
+Write-Host ""
 Write-Host "--- Account Instellingen ---" -ForegroundColor Cyan
 $InputName = Read-Host "Hoe moet het account heten? (Bijv: AvePoint Backup) [Standaard: Avepoint Backup]"
 if ([string]::IsNullOrWhiteSpace($InputName)) { $AccountNaam = "Avepoint Backup" } else { $AccountNaam = $InputName }
@@ -227,7 +243,7 @@ Ticket Info: AvePoint Service Account Created
 Date: $DateLog
 Tenant: $InitialDomain
 Account: $UserPrincipalName
-Created by: Lipa Script V5.4
+Created by: Lipa Script V5.7
 Settings:
  - DisplayName: $DisplayName
  - Role: Global Administrator
@@ -250,7 +266,6 @@ Write-Host ""
 
 # --- ACTIE REMINDERS ---
 if ($SecurityGroupName) {
-    # Alleen tonen bij SINGLE LICENTIE
     Write-Host "----------------- ACTIE VEREIST -----------------" -ForegroundColor Magenta
     Write-Host "Je hebt gekozen voor een SINGLE LICENTIE (via Groep)." -ForegroundColor Magenta
     Write-Host "De Security Group '$SecurityGroupName' is aangemaakt." -ForegroundColor White

@@ -32,7 +32,7 @@ Disconnect-MgGraph -ErrorAction SilentlyContinue
 Write-Host "Login venster wordt geopend..." -ForegroundColor Yellow
 
 try {
-    Connect-MgGraph -Scopes "User.ReadWrite.All", "RoleManagement.ReadWrite.Directory", "Domain.Read.All" -ForceRefresh -ErrorAction Stop
+    Connect-MgGraph -Scopes "User.ReadWrite.All", "RoleManagement.ReadWrite.Directory", "Domain.Read.All"  -ErrorAction Stop
 }
 catch {
     Write-Host ""

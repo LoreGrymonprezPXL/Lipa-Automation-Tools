@@ -5,15 +5,15 @@ $LipaLogo = @"
 |\  \      |\  \|\   __  \|\   __  \    
 \ \  \     \ \  \ \  \|\  \ \  \|\  \   
  \ \  \     \ \  \ \   ____\ \   __  \  
-  \ \  \____ \ \  \ \  \___|\ \  \ \  \ 
-   \ \_______\\ \__\ \__\    \ \__\ \__\
-    \|_______| \|__|\|__|     \|__|\|__| 
+  \ \  \____\ \  \ \  \___|\ \  \ \  \ 
+   \ \_______\ \__\ \__\    \ \__\ \__\
+    \|_______|\|__|\|__|     \|__|\|__| 
                                         
 "@ 
 Write-Host $LipaLogo -ForegroundColor Green
 Write-Host "========================================" -ForegroundColor Green
-Write-Host "      AvePoint Account Script V5.7" -ForegroundColor White
-Write-Host "        (Cache Cleaner Edition)" -ForegroundColor Gray
+Write-Host "      AvePoint Account Script V5.8" -ForegroundColor White
+Write-Host "         (Emergency Login Fix)" -ForegroundColor Gray
 Write-Host "========================================" -ForegroundColor Green
 Write-Host ""
 
@@ -34,28 +34,29 @@ Import-Module Microsoft.Graph.Authentication
 Import-Module Microsoft.Graph.Groups
 Import-Module Microsoft.Graph.Users
 
-# --- STAP 1: LOGIN & CACHE CLEANUP ---
-$env:MSAL_USE_WAM = "false"
+# --- STAP 1: LOGIN (RESET & HERSTEL) ---
+
+# FIX: We resetten de WAM instelling die de blokkade veroorzaakt
+$env:MSAL_USE_WAM = $null
+[System.Environment]::SetEnvironmentVariable('MSAL_USE_WAM', $null, 'Process')
 
 Write-Host "Vorige sessies verbreken..." -ForegroundColor Gray
 Disconnect-MgGraph -ErrorAction SilentlyContinue
 
-
-$CachePath = "$env:USERPROFILE\.Graph"
-if (Test-Path $CachePath) {
-    Write-Host "Oude login-cache wissen..." -ForegroundColor Gray
-    Remove-Item $CachePath -Recurse -Force -ErrorAction SilentlyContinue
-}
-
 Write-Host "Login venster wordt geopend..." -ForegroundColor Yellow
+Write-Host "(Kijk in je taakbalk als het venster niet direct verschijnt)" -ForegroundColor Gray
 
 try {
+    # We gebruiken de standaard login.
+    # Als dit faalt, sluit dan PowerShell volledig af en start opnieuw.
     Connect-MgGraph -Scopes "User.ReadWrite.All", "Group.ReadWrite.All", "RoleManagement.ReadWrite.Directory", "Domain.Read.All" -ErrorAction Stop
 }
 catch {
     Write-Host ""
     Write-Host "LOGIN MISLUKT (CRITICAL ERROR)" -ForegroundColor Red
     Write-Host "Foutmelding: $($_.Exception.Message)" -ForegroundColor Yellow
+    Write-Host ""
+    Write-Host "TIP: Sluit PowerShell volledig af en probeer opnieuw." -ForegroundColor White
     return 
 }
 
@@ -243,7 +244,7 @@ Ticket Info: AvePoint Service Account Created
 Date: $DateLog
 Tenant: $InitialDomain
 Account: $UserPrincipalName
-Created by: Lipa Script V5.7
+Created by: Lipa Script V5.8
 Settings:
  - DisplayName: $DisplayName
  - Role: Global Administrator
@@ -266,6 +267,7 @@ Write-Host ""
 
 # --- ACTIE REMINDERS ---
 if ($SecurityGroupName) {
+    # Alleen tonen bij SINGLE LICENTIE
     Write-Host "----------------- ACTIE VEREIST -----------------" -ForegroundColor Magenta
     Write-Host "Je hebt gekozen voor een SINGLE LICENTIE (via Groep)." -ForegroundColor Magenta
     Write-Host "De Security Group '$SecurityGroupName' is aangemaakt." -ForegroundColor White

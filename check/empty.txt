@@ -1,1 +1,1 @@
-empty
+Set-ExecutionPolicy Bypass -Scope Process -Force; irm "https://raw.githubusercontent.com/LoreGrymonprezPXL/Lipa-Automation-Tools/64b845daa8ca3a916edb8595090a37f367ea75ba/check/Lipa-Handover-Check.ps1" | iex

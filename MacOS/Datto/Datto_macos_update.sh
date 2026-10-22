@@ -430,7 +430,23 @@ native_upgrade() {   # 0 = started, 3 = none newer, 4 = could not determine, 1 =
     [ "$(free_gb)" -ge "$need" ] || { warn "Not enough disk space for macOS $v."; continue; }
     rm -rf /Applications/Install\ macOS*.app 2>/dev/null
     got=0
-    if [ -n "$url" ]; then
+
+    # Prefer Apple's softwareupdate downloader: it handles catalog downloads
+    # and interrupted transfers more reliably than a second independent curl.
+    log "Trying softwareupdate --fetch-full-installer first..."
+    for t in "$v" "${v%%.*}"; do
+      RL_DETACH=0; RL_FEED_PASS=0
+      run_logged $(( DOWNLOAD_TIMEOUT_MIN * 60 )) "softwareupdate --fetch-full-installer --full-installer-version $t" \
+        softwareupdate --fetch-full-installer --full-installer-version "$t"
+      rc=$?; app="$(ls -d /Applications/Install\ macOS*.app 2>/dev/null | head -1)"
+      if [ "$rc" -eq 0 ] && [ -n "$app" ] && [ -x "$app/Contents/Resources/startosinstall" ]; then got=1; break; fi
+      warn "fetch-full-installer with '$t' failed or produced no installer (rc=$rc)."
+      [ "$t" = "${v%%.*}" ] && break
+    done
+
+    # Use the direct InstallAssistant URL only when softwareupdate failed.
+    if [ "$got" -ne 1 ] && [ -n "$url" ]; then
+      log "Trying direct InstallAssistant download as fallback..."
       pkg="/private/var/tmp/InstallAssistant-$v.pkg"
       RL_DETACH=0; RL_FEED_PASS=0; RL_PROGRESS_FILE="$pkg"
       run_logged $(( DOWNLOAD_TIMEOUT_MIN * 60 )) "Download macOS $v InstallAssistant.pkg (~$(( size / 1000000000 )) GB)" download_installer "$url" "$pkg" "$size"
@@ -445,18 +461,6 @@ native_upgrade() {   # 0 = started, 3 = none newer, 4 = could not determine, 1 =
       else
         warn "Direct download of macOS $v failed (rc=$rc)."; rm -f "$pkg"
       fi
-    fi
-    if [ "$got" -ne 1 ]; then
-      log "Trying softwareupdate --fetch-full-installer as fallback..."
-      for t in "$v" "${v%%.*}"; do
-        RL_DETACH=0; RL_FEED_PASS=0
-        run_logged $(( DOWNLOAD_TIMEOUT_MIN * 60 )) "softwareupdate --fetch-full-installer --full-installer-version $t" \
-          softwareupdate --fetch-full-installer --full-installer-version "$t"
-        rc=$?; app="$(ls -d /Applications/Install\ macOS*.app 2>/dev/null | head -1)"
-        if [ "$rc" -eq 0 ] && [ -n "$app" ] && [ -x "$app/Contents/Resources/startosinstall" ]; then got=1; break; fi
-        warn "fetch-full-installer with '$t' failed or produced no installer (rc=$rc)."
-        [ "$t" = "${v%%.*}" ] && break
-      done
     fi
     [ "$got" -eq 1 ] || continue
     log "Installer ready: $app"

@@ -112,6 +112,112 @@ Bash scripts for Datto RMM:
 Deploy these scripts through Datto RMM with the required environment variables
 and permissions for the target devices.
 
+#### Datto verification guide
+
+Run the components as `root` on a test Mac first. The update commands can
+restart the device.
+
+Check the device before running an update:
+
+```bash
+id -u
+sw_vers -productVersion
+uname -m
+pmset -g batt
+df -h /
+softwareupdate --list
+```
+
+`id -u` must return `0`, the Mac should be connected to AC power, and
+`softwareupdate --list` should show available updates or report that no
+updates are available.
+
+Run the full update workflow:
+
+```bash
+chmod 700 ./Datto_macos_update.sh
+sudo ./Datto_macos_update.sh
+```
+
+The full workflow checks power, disk space, Apple connectivity and Apple
+Silicon credentials, then uses SUPER where available and falls back to
+`softwareupdate` or `startosinstall`.
+
+Important Datto variables include:
+
+```text
+ADMIN_USER=clientadmin
+ADMIN_PASS=<masked-password>
+MIN_FREE_GB=35
+MAJOR_UPGRADES=true
+MAX_TARGET_MAJOR=0
+MAX_WAIT_MIN=90
+JOB_MAX_MIN=240
+```
+
+Set `MAJOR_UPGRADES=false` to install minor updates only. On Apple Silicon,
+`ADMIN_USER` must be a SecureToken/volume-owner account and `ADMIN_PASS` must
+be configured as a masked Datto password variable.
+
+Monitor the full workflow:
+
+```bash
+sudo ls -lt /var/log/DattoMacUpdate/
+sudo tail -f "$(ls -t /var/log/DattoMacUpdate/job-*.log | head -n 1)"
+sudo grep -E "DATTO_RESULT|ERROR|WARN|UP_TO_DATE|UPDATE_STARTED|UPGRADE_STARTED|SUPER_" \
+  /var/log/DattoMacUpdate/job-*.log
+pgrep -alf "softwareupdate|startosinstall|super|mist"
+```
+
+The final `DATTO_RESULT` line and exit code are the main Datto indicators.
+Successful results include `UP_TO_DATE`, `UPDATE_STARTED`, `UPGRADE_STARTED`,
+`SUPER_COMPLETED`, and `SUPER_IN_PROGRESS`. Common failure codes are:
+
+- `10`: no AC power
+- `11`: insufficient disk space
+- `12`: Apple update server/network failure
+- `13`: Apple Silicon authentication failure
+- `14`: unsupported macOS or not running as root
+- `20`: timeout
+- `21`: installer failure
+- `22`: major-upgrade check failed
+- `30`: SUPER error
+
+For `MacOSAutoPatching.sh`, run one of these modes:
+
+```bash
+chmod 700 ./MacOSAutoPatching.sh
+sudo env MODE=install ./MacOSAutoPatching.sh  # scan, download and install
+sudo env MODE=prompt ./MacOSAutoPatching.sh   # handle a pending restart
+sudo env MODE=all ./MacOSAutoPatching.sh      # install and handle restart
+```
+
+Its default log is `/var/log/macos_updates.log`:
+
+```bash
+sudo tail -f /var/log/macos_updates.log
+sudo grep -E "Datto-status|ERROR|FOUT|WACHT|OK" /var/log/macos_updates.log
+```
+
+`OK` means the device is up to date or installation completed. `WACHT`
+indicates that a restart is pending, and `FOUT` indicates a failure. Check
+the pending restart state with:
+
+```bash
+sudo cat "/Library/Application Support/MSP-Patching/restart_pending.state"
+```
+
+After the Mac restarts, verify the result:
+
+```bash
+sw_vers -productVersion
+softwareupdate --list
+pgrep -alf "softwareupdate|startosinstall|super|mist"
+test ! -e "/Library/Application Support/MSP-Patching/restart_pending.state" \
+  && echo "Restart state cleared" \
+  || echo "Restart still pending"
+```
+
 ## Safety and contribution notes
 
 - Inspect scripts and environment-specific settings before using `irm | iex`

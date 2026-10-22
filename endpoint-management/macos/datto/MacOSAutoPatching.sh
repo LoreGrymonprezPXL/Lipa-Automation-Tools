@@ -1,6 +1,14 @@
 #!/bin/bash
 
 ###############################################################################
+# LEGACY - NIET GEBRUIKEN VOOR NIEUWE DATTO-RMM JOBS
+#
+# Gebruik endpoint-management/macos/datto/Datto_macos_update.sh als de enige
+# aanbevolen Lipa ICT-component. Dit bestand blijft alleen bewaard als
+# historische fallback en mag niet naast de aanbevolen component worden
+# ingepland op hetzelfde toestel.
+###############################################################################
+#
 # macOS Patch Management voor Datto RMM
 #
 # Taken:

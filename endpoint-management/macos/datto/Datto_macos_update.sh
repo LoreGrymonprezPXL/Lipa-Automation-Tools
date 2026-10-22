@@ -1,10 +1,14 @@
 #!/bin/bash
 # =============================================================================
-# Datto RMM Component: macOS minor updates + major upgrades (10.15 Catalina -> latest)
+# Lipa ICT - Datto RMM Component: macOS updates and major upgrades
 #
 # Paths:
-#   macOS 11+ and SUPER available  -> SUPER v5 (https://github.com/Macjutsu/super)
-#   macOS 10.15 (or SUPER missing/failed) -> native softwareupdate / startosinstall
+#   macOS 11+ and SUPER available -> SUPER v5 (https://github.com/Macjutsu/super)
+#   macOS 11+ without SUPER       -> native softwareupdate / startosinstall
+#
+# Supported scope:
+#   Big Sur (macOS 11) and newer. Older macOS versions are intentionally not
+#   handled by this component because they are outside the Lipa ICT baseline.
 #
 # Datto component variables (all optional except ADMIN_PASS on Apple Silicon):
 #   ADMIN_USER          Volume-owner / SecureToken admin   (default: clientadmin)
@@ -221,11 +225,10 @@ step "START: macOS update job on $(scutil --get ComputerName 2>/dev/null || host
 
 OS_VER="$(sw_vers -productVersion)"
 OS_MAJOR="${OS_VER%%.*}"
-OS_MINOR="$(echo "$OS_VER" | cut -d. -f2)"
 ARCH="$(uname -m)"
 log "macOS $OS_VER | arch: $ARCH | model: $(sysctl -n hw.model 2>/dev/null) | console user: '$(console_user)'"
-if [ "$OS_MAJOR" -eq 10 ] && [ "$OS_MINOR" -lt 15 ]; then
-  finish 14 UNSUPPORTED_OS "macOS $OS_VER is older than 10.15 Catalina; not supported by this component."
+if [ "$OS_MAJOR" -lt 11 ]; then
+  finish 14 UNSUPPORTED_OS "macOS $OS_VER is older than Big Sur (macOS 11); this Lipa ICT component does not support it."
 fi
 
 # ---- Pre-flight -------------------------------------------------------------
@@ -258,9 +261,9 @@ LOCAL_SUPER=""
 for c in "$SCRIPT_DIR/super" "./super"; do [ -f "$c" ] && { LOCAL_SUPER="$c"; break; }; done
 USE_SUPER=0
 if [ "$OS_MAJOR" -ge 11 ] && { [ -n "$LOCAL_SUPER" ] || [ -f "$SUPER_BIN" ]; }; then USE_SUPER=1; fi
-if [ "$USE_SUPER" = "1" ]; then log "Path: SUPER v5 (macOS $OS_VER >= 11)."
+if [ "$USE_SUPER" = "1" ]; then log "Path: SUPER v5 (macOS $OS_VER)."
 elif [ "$OS_MAJOR" -ge 11 ]; then log "Path: native softwareupdate/startosinstall (SUPER not attached/installed)."
-else log "Path: native softwareupdate/startosinstall (macOS 10.15; SUPER v5 requires 11+)."; fi
+else log "Path: native softwareupdate/startosinstall."; fi
 
 step "4/5 Pre-flight: Apple Silicon authentication"
 if [ "$ARCH" = "arm64" ]; then
@@ -361,7 +364,7 @@ STOS_AUTH=()
 [ "$ARCH" = "arm64" ] && STOS_AUTH=( --user "$ADMIN_USER" --stdinpass )
 FEED=0; [ "$ARCH" = "arm64" ] && FEED=1
 
-# ---- SOFA feed parsing (osascript -l JavaScript: present on Catalina, no python/jq needed) ----
+# ---- SOFA feed parsing (osascript -l JavaScript; no Python or jq required) ---
 # Verified against the real v2 feed schema:
 #   OSVersions[].SupportedModels[].Identifiers  -> keys are hw.model strings (e.g. "MacBookPro16,1")
 #   InstallationApps.LatestUMA / AllPreviousUMA -> {Version, URL (InstallAssistant.pkg), Size}

@@ -116,6 +116,11 @@ environment variables and root permissions for the target devices. Keeping
 the second file in the repository prevents accidental loss of the older
 workflow, but it is not part of the recommended Datto policy.
 
+The supported Lipa ICT baseline is **macOS 11 Big Sur and newer**. Devices
+running an older macOS version are reported as unsupported and are not changed
+by this component. The test device may therefore be on Big Sur; versions below
+Big Sur are outside the intended rollout scope.
+
 #### Datto verification guide
 
 Run the components as `root` on a test Mac first. The update commands can
@@ -146,6 +151,10 @@ sudo ./Datto_macos_update.sh
 The full workflow checks power, disk space, Apple connectivity and Apple
 Silicon credentials, then uses SUPER where available and falls back to
 `softwareupdate` or `startosinstall`.
+
+The component uses SUPER when it is supplied by the Datto component or is
+already installed on the Mac. If SUPER is unavailable, it uses Apple's native
+`softwareupdate` and `startosinstall` tools instead.
 
 Important Datto variables include:
 

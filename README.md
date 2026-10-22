@@ -105,12 +105,16 @@ The scripts in
 [`endpoint-management/macos/datto/`](endpoint-management/macos/datto/) are
 Bash scripts for Datto RMM:
 
-- `MacOSAutoPatching.sh` handles macOS update discovery, installation,
-  restart prompts, logging, and Datto status reporting.
-- `Datto_macos_update.sh` provides the Datto macOS update workflow and checks.
+- `Datto_macos_update.sh` is the single recommended Datto component. It
+  handles macOS updates, major upgrades, unattended authentication, restart
+  handling, logging, and Datto status reporting.
+- `MacOSAutoPatching.sh` is an older alternative workflow. Do not deploy both
+  scripts as scheduled jobs on the same device.
 
-Deploy these scripts through Datto RMM with the required environment variables
-and permissions for the target devices.
+Deploy only `Datto_macos_update.sh` through Datto RMM with the required
+environment variables and root permissions for the target devices. Keeping
+the second file in the repository prevents accidental loss of the older
+workflow, but it is not part of the recommended Datto policy.
 
 #### Datto verification guide
 
@@ -178,6 +182,7 @@ Monitor the full workflow:
 
 ```bash
 sudo ls -lt /var/log/DattoMacUpdate/
+sudo tail -f /var/log/datto-macos-upgrade.log
 sudo tail -f "$(ls -t /var/log/DattoMacUpdate/job-*.log | head -n 1)"
 sudo grep -E "DATTO_RESULT|ERROR|WARN|UP_TO_DATE|UPDATE_STARTED|UPGRADE_STARTED|SUPER_" \
   /var/log/DattoMacUpdate/job-*.log
@@ -197,30 +202,6 @@ Successful results include `UP_TO_DATE`, `UPDATE_STARTED`, `UPGRADE_STARTED`,
 - `21`: installer failure
 - `22`: major-upgrade check failed
 - `30`: SUPER error
-
-For `MacOSAutoPatching.sh`, run one of these modes:
-
-```bash
-chmod 700 ./MacOSAutoPatching.sh
-sudo env MODE=install ./MacOSAutoPatching.sh  # scan, download and install
-sudo env MODE=prompt ./MacOSAutoPatching.sh   # handle a pending restart
-sudo env MODE=all ./MacOSAutoPatching.sh      # install and handle restart
-```
-
-Its default log is `/var/log/macos_updates.log`:
-
-```bash
-sudo tail -f /var/log/macos_updates.log
-sudo grep -E "Datto-status|ERROR|FOUT|WACHT|OK" /var/log/macos_updates.log
-```
-
-`OK` means the device is up to date or installation completed. `WACHT`
-indicates that a restart is pending, and `FOUT` indicates a failure. Check
-the pending restart state with:
-
-```bash
-sudo cat "/Library/Application Support/MSP-Patching/restart_pending.state"
-```
 
 After the Mac restarts, verify the result:
 

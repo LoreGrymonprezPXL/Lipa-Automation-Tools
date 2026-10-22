@@ -38,10 +38,12 @@ umask 077
 PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin
 
 LOG_DIR="/var/log/DattoMacUpdate"
+CURRENT_LOG="/var/log/datto-macos-upgrade.log"
 mkdir -p "$LOG_DIR" 2>/dev/null
 find "$LOG_DIR" -type f -mtime +30 -delete 2>/dev/null
 JOBLOG="$LOG_DIR/job-$(date +%Y%m%d-%H%M%S).log"
-exec > >(tee -a "$JOBLOG") 2>&1  # from here: everything goes to Datto stdout AND the job log file
+touch "$CURRENT_LOG" 2>/dev/null
+exec > >(tee "$JOBLOG" "$CURRENT_LOG") 2>&1  # Datto stdout, current log, and run log
 
 # ---- Output helpers (printf to a pipe is unbuffered in bash) -----------------
 ts()   { date '+%Y-%m-%d %H:%M:%S'; }
@@ -61,7 +63,7 @@ trap 'finish 20 TIMEOUT "Global job limit of ${JOB_MAX_MIN} min reached; stoppin
 finish() {   # finish <exit-code> <STATUS> <message...>
   local code="$1" status="$2"; shift 2
   [ "$code" -ne 0 ] && err "$*"
-  printf '%s [INFO ] Job finished. Full log: %s\n' "$(ts)" "$JOBLOG"
+  printf '%s [INFO ] Job finished. Current log: %s | Full log: %s\n' "$(ts)" "$CURRENT_LOG" "$JOBLOG"
   printf 'DATTO_RESULT: %s | exit=%s | %s\n' "$status" "$code" "$*"
   sleep 1                       # let tee flush the last lines
   exit "$code"

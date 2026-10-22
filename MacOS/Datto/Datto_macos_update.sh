@@ -17,6 +17,9 @@
 #   UPGRADE_WATCH_MIN   Minutes to watch startosinstall    (default: 30)
 #   USER_WARN_SECONDS   Warning shown to logged-in user before native
 #                       update/upgrade starts              (default: 120)
+#   JOB_MAX_MIN         Global hard limit for the whole job   (default: 240; keep below the Datto timeout)
+#   STALL_MIN           Abort a download making no progress for this long (default: 15)
+#   DOWNLOAD_ORDER      direct-first | native-first         (default: direct-first)
 #   FORCE_INSTALLER_VERSION  e.g. 15.7.1 - skip discovery, fetch this installer (native path)
 #   SKIP_AC_CHECK       true to skip AC power check        (default: false)
 #
@@ -26,12 +29,19 @@
 #   10 NO_AC_POWER        11 LOW_DISK         12 NO_NETWORK
 #   13 AUTH_FAILED        14 UNSUPPORTED_OS / NOT_ROOT
 #   20 TIMEOUT            21 INSTALLER_FAILED 30 SUPER_ERRORS
+# Every line is written to Datto stdout AND /var/log/DattoMacUpdate/job-<timestamp>.log
 # =============================================================================
 
 exec 2>&1                       # stderr -> stdout immediately, so Datto sees everything
 set +x                          # never trace (would leak ADMIN_PASS)
 umask 077
 PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin
+
+LOG_DIR="/var/log/DattoMacUpdate"
+mkdir -p "$LOG_DIR" 2>/dev/null
+find "$LOG_DIR" -type f -mtime +30 -delete 2>/dev/null
+JOBLOG="$LOG_DIR/job-$(date +%Y%m%d-%H%M%S).log"
+exec > >(tee -a "$JOBLOG") 2>&1  # from here: everything goes to Datto stdout AND the job log file
 
 # ---- Output helpers (printf to a pipe is unbuffered in bash) -----------------
 ts()   { date '+%Y-%m-%d %H:%M:%S'; }
@@ -40,15 +50,20 @@ warn() { printf '%s [WARN ] %s\n'  "$(ts)" "$*"; }
 err()  { printf '%s [ERROR] %s\n'  "$(ts)" "$*"; }
 step() { printf '\n%s ===== %s =====\n' "$(ts)" "$*"; }
 
-TAIL_PIDS=""
-cleanup() { for p in $TAIL_PIDS; do kill "$p" 2>/dev/null; done; }
+TAIL_PIDS=""; WATCHDOG_PID=""
+cleanup() {
+  for p in $TAIL_PIDS; do kill "$p" 2>/dev/null; done
+  if [ -n "$WATCHDOG_PID" ]; then pkill -P "$WATCHDOG_PID" 2>/dev/null; kill "$WATCHDOG_PID" 2>/dev/null; fi
+}
 trap cleanup EXIT
+trap 'finish 20 TIMEOUT "Global job limit of ${JOB_MAX_MIN} min reached; stopping (a detached installer, if any, keeps running)."' TERM
 
 finish() {   # finish <exit-code> <STATUS> <message...>
   local code="$1" status="$2"; shift 2
   [ "$code" -ne 0 ] && err "$*"
-  printf '%s [INFO ] Job finished.\n' "$(ts)"
+  printf '%s [INFO ] Job finished. Full log: %s\n' "$(ts)" "$JOBLOG"
   printf 'DATTO_RESULT: %s | exit=%s | %s\n' "$status" "$code" "$*"
+  sleep 1                       # let tee flush the last lines
   exit "$code"
 }
 
@@ -65,34 +80,69 @@ SKIP_AC_CHECK="${SKIP_AC_CHECK:-false}"
 MAX_INSTALLER_ATTEMPTS=3
 FORCE_INSTALLER_VERSION="${FORCE_INSTALLER_VERSION:-}"
 UPGRADE_CHECK_FAILED=0
+DISCOVERY_DEGRADED=0
+JOB_MAX_MIN="${JOB_MAX_MIN:-240}"
+STALL_MIN="${STALL_MIN:-15}"
+DOWNLOAD_ORDER="${DOWNLOAD_ORDER:-direct-first}"
+CURL_PROXY=()
+APP_PATH=""
 
 SUPER_DIR="/Library/Management/super"
 SUPER_BIN="$SUPER_DIR/super"
-LOG_DIR="/var/log/DattoMacUpdate"
-mkdir -p "$LOG_DIR" 2>/dev/null
 SCRIPT_DIR="$(cd "$(dirname "$0")" 2>/dev/null && pwd)"
 START_EPOCH="$(date +%s)"
-RL_DETACH=0; RL_FEED_PASS=0; RL_LOG=""; RL_RC=0; RL_PROGRESS_FILE=""
+RL_DETACH=0; RL_FEED_PASS=0; RL_LOG=""; RL_RC=0; RL_PROGRESS_FILE=""; RL_STALL_SEC=0
 
-# ---- run_logged: native timeout + live output -------------------------------
+# Global watchdog: whatever happens, the Datto job can never run longer than JOB_MAX_MIN.
+( sleep $(( JOB_MAX_MIN * 60 )); kill -TERM $$ 2>/dev/null ) &
+WATCHDOG_PID=$!
+
+fsize() { local n; n="$(stat -f%z "$1" 2>/dev/null)"; case "$n" in ""|*[!0-9]*) n="$(stat -c%s "$1" 2>/dev/null)";; esac; echo "${n:-0}"; }
+
+# Uses the macOS system HTTPS proxy (if any) for curl; softwareupdate already honours it natively.
+detect_proxy() {
+  CURL_PROXY=()
+  if [ -n "$HTTPS_PROXY$https_proxy" ]; then log "Proxy from environment variable will be used by curl."; return 0; fi
+  local out host port
+  out="$(scutil --proxy 2>/dev/null)"
+  if printf '%s\n' "$out" | grep -q 'HTTPSEnable : 1'; then
+    host="$(printf '%s\n' "$out" | awk '/HTTPSProxy :/{print $3}')"
+    port="$(printf '%s\n' "$out" | awk '/HTTPSPort :/{print $3}')"
+    if [ -n "$host" ] && [ -n "$port" ]; then CURL_PROXY=( -x "http://$host:$port" ); log "System HTTPS proxy detected: $host:$port (curl will use it)."; return 0; fi
+  fi
+  if printf '%s\n' "$out" | grep -q 'ProxyAutoConfigEnable : 1'; then
+    warn "System uses a PAC proxy file; curl cannot evaluate it. Direct downloads may be blocked; native Apple methods will be used as fallback."
+  else
+    log "No system HTTPS proxy configured."
+  fi
+}
+
+# ---- run_logged: native timeout + stall detection + live output --------------
 # Runs a command in the background, writing to a log file that is tailed live to
-# stdout (no command substitution, nothing buffered). Prints a heartbeat every 30s.
-#   RL_DETACH=1     run under nohup and DON'T kill on timeout (for startosinstall/SUPER)
-#   RL_FEED_PASS=1  feed $ADMIN_PASS on the command's stdin (for --stdinpass)
-# Returns the command's exit code, or 124 on timeout.
+# stdout (no command substitution, nothing buffered). Heartbeat every 30s.
+#   RL_DETACH=1      run under nohup and DON'T kill on timeout (startosinstall/SUPER)
+#   RL_FEED_PASS=1   feed $ADMIN_PASS on the command's stdin (for --stdinpass)
+#   RL_STALL_SEC=N   kill the command if neither its output nor RL_PROGRESS_FILE grows for N s
+# Returns the command's exit code; 124 = timeout, 125 = stalled.
+rl_terminate() {  # rl_terminate <pid> <tailpid>
+  pkill -TERM -P "$1" 2>/dev/null; kill -TERM "$1" 2>/dev/null; sleep 5
+  pkill -KILL -P "$1" 2>/dev/null; kill -KILL "$1" 2>/dev/null
+  wait "$1" 2>/dev/null; sleep 1
+  { kill "$2"; wait "$2"; } 2>/dev/null
+}
 run_logged() {
   local secs="$1" label="$2"; shift 2
   local lf; lf="$(mktemp "$LOG_DIR/run.XXXXXX")"; RL_LOG="$lf"
   local pre=(); [ "$RL_DETACH" = "1" ] && pre=(nohup)
-  log ">>> START: $label (timeout ${secs}s) - log: $lf"
+  log ">>> START: $label (timeout ${secs}s$( [ "$RL_STALL_SEC" -gt 0 ] && echo ", stall limit ${RL_STALL_SEC}s" )) - log: $lf"
   tail -f "$lf" & local tpid=$!; TAIL_PIDS="$TAIL_PIDS $tpid"
   if [ "$RL_FEED_PASS" = "1" ]; then
     "${pre[@]}" "$@" >>"$lf" 2>&1 < <(printf '%s\n' "$ADMIN_PASS") &
   else
     "${pre[@]}" "$@" >>"$lf" 2>&1 < /dev/null &
   fi
-  local pid=$! start now last rc
-  start="$(date +%s)"; last="$start"
+  local pid=$! start now last rc sig lastsig=-1 lastchange mb
+  start="$(date +%s)"; last="$start"; lastchange="$start"
   while kill -0 "$pid" 2>/dev/null; do
     sleep 2
     now="$(date +%s)"
@@ -103,15 +153,20 @@ run_logged() {
         RL_RC=124; return 124
       fi
       warn "$label TIMED OUT after ${secs}s - terminating."
-      pkill -TERM -P "$pid" 2>/dev/null; kill -TERM "$pid" 2>/dev/null; sleep 5
-      pkill -KILL -P "$pid" 2>/dev/null; kill -KILL "$pid" 2>/dev/null
-      wait "$pid" 2>/dev/null; sleep 1
-      { kill "$tpid"; wait "$tpid"; } 2>/dev/null
-      RL_RC=124; return 124
+      rl_terminate "$pid" "$tpid"; RL_RC=124; return 124
+    fi
+    if [ "$RL_STALL_SEC" -gt 0 ] && [ "$RL_DETACH" != "1" ]; then
+      sig=$(( $(fsize "$lf") + $( [ -n "$RL_PROGRESS_FILE" ] && fsize "$RL_PROGRESS_FILE" || echo 0 ) ))
+      if [ "$sig" != "$lastsig" ]; then lastsig="$sig"; lastchange="$now"
+      elif [ $(( now - lastchange )) -ge "$RL_STALL_SEC" ]; then
+        warn "$label made NO PROGRESS for ${RL_STALL_SEC}s (stalled) - terminating."
+        rl_terminate "$pid" "$tpid"; RL_RC=125; return 125
+      fi
     fi
     if [ $(( now - last )) -ge 30 ]; then
       if [ -n "$RL_PROGRESS_FILE" ] && [ -f "$RL_PROGRESS_FILE" ]; then
-        log "... $label still running ($(( now - start ))s elapsed, downloaded $(( $(stat -f%z "$RL_PROGRESS_FILE" 2>/dev/null || echo 0) / 1048576 )) MB)"
+        mb=$(( $(fsize "$RL_PROGRESS_FILE") / 1048576 ))
+        log "... $label still running ($(( now - start ))s elapsed, downloaded ${mb} MB)"
       else
         log "... $label still running ($(( now - start ))s elapsed)"
       fi
@@ -183,9 +238,10 @@ log "Free space: ${FREE} GB (required: ${MIN_FREE_GB} GB)"
 [ "$FREE" -ge "$MIN_FREE_GB" ] || finish 11 LOW_DISK "Only ${FREE} GB free; ${MIN_FREE_GB} GB required. Free up space and re-run."
 log "OK: enough disk space."
 
-step "3/5 Pre-flight: Apple update servers"
+step "3/5 Pre-flight: Apple update servers & proxy"
+detect_proxy
 log "Contacting swscan.apple.com (20s timeout)..."
-if curl -s -o /dev/null -I --connect-timeout 10 --max-time 20 https://swscan.apple.com/; then
+if curl -s -o /dev/null -I --connect-timeout 10 --max-time 20 "${CURL_PROXY[@]}" https://swscan.apple.com/; then
   log "OK: swscan.apple.com reachable."
 else
   finish 12 NO_NETWORK "Cannot reach swscan.apple.com (no internet, proxy or firewall?)."
@@ -356,10 +412,18 @@ function run(argv) {
 JXAEOF
 
 # Fills $CAND_FILE with "version|url|bytes" lines (newest first).
-# Returns 0 = determined (file may be empty = already on newest supported major),
-#         1 = could NOT determine (never treated as "up to date").
+# Returns 0 = determined (file may be empty = already on newest supported major).
+# If the feed/catalog cannot be read it DEGRADES to Apple's own "latest installer"
+# (DISCOVERY_DEGRADED=1: hardware support can then only be checked by the installer itself).
+sofa_failed() {
+  warn "$1"
+  warn "Falling back to Apple's own 'softwareupdate --fetch-full-installer' (hardware support cannot be pre-checked)."
+  DISCOVERY_DEGRADED=1
+  if [ "$MAX_TARGET_MAJOR" -gt 0 ]; then echo "${MAX_TARGET_MAJOR}||0" > "$CAND_FILE"; else echo "LATEST||0" > "$CAND_FILE"; fi
+  return 0
+}
 discover_candidates() {
-  CAND_FILE="$LOG_DIR/candidates.$$"; : > "$CAND_FILE"
+  CAND_FILE="$LOG_DIR/candidates.$$"; : > "$CAND_FILE"; DISCOVERY_DEGRADED=0
   if [ -n "$FORCE_INSTALLER_VERSION" ]; then
     log "FORCE_INSTALLER_VERSION set: using $FORCE_INSTALLER_VERSION"; echo "${FORCE_INSTALLER_VERSION}||0" > "$CAND_FILE"; return 0
   fi
@@ -368,7 +432,7 @@ discover_candidates() {
     run_logged 300 "List full installers (Apple catalog)" softwareupdate --list-full-installers
     local rc=$? lf="$RL_LOG"
     [ "$rc" -eq 124 ] && finish 20 TIMEOUT "Apple catalog query timed out after 5 min."
-    grep -qi 'unrecognized option' "$lf" && return 1
+    if grep -qi 'unrecognized option' "$lf"; then sofa_failed "softwareupdate does not support --list-full-installers."; return 0; fi
     grep 'Title: macOS' "$lf" | sed -n 's/.*Version: \([0-9][0-9.]*\).*/\1/p' \
       | sort -t. -k1,1nr -k2,2nr -k3,3nr \
       | awk -F. -v cur="$OS_MAJOR" -v max="$MAX_TARGET_MAJOR" '$1>cur && (max==0 || $1<=max) && !seen[$1]++ {print $0 "||0"}' > "$CAND_FILE"
@@ -380,32 +444,53 @@ discover_candidates() {
   for url in https://sofa.macadmins.io/v2/macos_data_feed.json \
              https://raw.githubusercontent.com/macadmins/sofa/main/v2/macos_data_feed.json; do
     log "Downloading SOFA feed: $url (60s timeout)"
-    if curl -fsSL --connect-timeout 10 --max-time 60 -o "$feed" "$url"; then
+    if curl -fsSL --connect-timeout 10 --max-time 60 "${CURL_PROXY[@]}" -o "$feed" "$url"; then
       ok=1; log "Feed downloaded ($(wc -c < "$feed" | tr -d ' ') bytes)."; break
     fi
     warn "Could not download $url"
   done
-  [ "$ok" -eq 1 ] || return 1
+  [ "$ok" -eq 1 ] || { sofa_failed "SOFA feed unreachable (network filter/proxy?)."; return 0; }
   log "Evaluating which macOS versions model '$model' supports..."
   if ! osascript -l JavaScript -e "$JXA_PICK" "$model" "$feed" "$OS_MAJOR" "$MAX_TARGET_MAJOR" > "$CAND_FILE.raw" 2> "$CAND_FILE.err"; then
-    warn "Feed parsing failed: $(head -c 300 "$CAND_FILE.err")"; return 1
+    sofa_failed "Feed parsing failed: $(head -c 300 "$CAND_FILE.err")"; return 0
   fi
-  if grep -q '^ERR:' "$CAND_FILE.raw"; then warn "Feed parsing: $(grep '^ERR:' "$CAND_FILE.raw")"; return 1; fi
-  grep -q '^HW:ok' "$CAND_FILE.raw" || { warn "Unexpected parser output: $(head -c 200 "$CAND_FILE.raw")"; return 1; }
+  if grep -q '^ERR:' "$CAND_FILE.raw"; then sofa_failed "Feed parsing: $(grep '^ERR:' "$CAND_FILE.raw")"; return 0; fi
+  grep -q '^HW:ok' "$CAND_FILE.raw" || { sofa_failed "Unexpected parser output: $(head -c 200 "$CAND_FILE.raw")"; return 0; }
   grep -E '^[0-9]+(\.[0-9]+)*\|' "$CAND_FILE.raw" > "$CAND_FILE"
+  return 0
+}
+
+# Quick HEAD request before committing to an 18 GB download: detects blocked/proxied/odd CDN answers.
+probe_download() {   # probe_download URL EXPECTED_BYTES
+  local url="$1" size="$2" host hdr code len
+  host="${url#*://}"; host="${host%%/*}"
+  log "Probing direct download: $host (HEAD request, 30s timeout)..."
+  hdr="$(curl -sSI -L --connect-timeout 15 --max-time 30 "${CURL_PROXY[@]}" "$url" 2>&1)"
+  code="$(printf '%s\n' "$hdr" | tr -d '\r' | awk '/^HTTP/{c=$2} END{print c}')"
+  len="$(printf '%s\n' "$hdr" | tr -d '\r' | awk 'tolower($1)=="content-length:"{l=$2} END{print l}')"
+  log "Probe result: HTTP ${code:-none}, content-length ${len:-unknown} (feed says ${size:-unknown})."
+  case "$code" in
+    200) ;;
+    403|407) warn "Direct download blocked (HTTP $code: proxy/content filter). Using native Apple method instead."; return 1;;
+    *)       warn "Direct download unavailable (${code:-no HTTP answer}: $(printf '%s' "$hdr" | head -c 200)). Using native Apple method instead."; return 1;;
+  esac
+  if [ -n "$len" ] && [ "$len" -gt 0 ] 2>/dev/null && [ "${size:-0}" -gt 0 ] 2>/dev/null && [ "$len" != "$size" ]; then
+    warn "Server reports $len bytes but feed says $size; not trusting direct download. Using native Apple method instead."; return 1
+  fi
   return 0
 }
 
 # Direct download of Apple's InstallAssistant.pkg with resume, stall detection and size check.
 download_installer() {   # download_installer URL DEST EXPECTED_BYTES
-  local url="$1" dest="$2" want="$3" i rc got
+  local url="$1" dest="$2" want="$3" i rc=1 got
   for i in 1 2 3 4; do
     log "curl attempt $i/4 (resumes partial file; aborts if slower than 10 KB/s for 120 s)"
-    curl -fL -sS --connect-timeout 20 --speed-limit 10240 --speed-time 120 -C - -o "$dest" "$url"; rc=$?
+    curl -fL -sS --connect-timeout 20 --speed-limit 10240 --speed-time 120 "${CURL_PROXY[@]}" -C - -o "$dest" "$url"; rc=$?
     [ "$rc" -eq 0 ] && break
     warn "curl attempt $i ended with rc=$rc"; sleep 10
   done
-  got="$(stat -f%z "$dest" 2>/dev/null)"
+  if [ "$rc" -ne 0 ]; then err "All direct download attempts failed (last curl exit code: $rc)."; return 1; fi
+  got="$(fsize "$dest")"
   log "Downloaded ${got:-0} bytes (expected ${want:-unknown})."
   if [ -n "$want" ] && [ "$want" -gt 0 ] 2>/dev/null && [ "${got:-0}" != "$want" ]; then
     err "Size mismatch - download incomplete or corrupt."; return 1
@@ -413,67 +498,85 @@ download_installer() {   # download_installer URL DEST EXPECTED_BYTES
   [ -n "$got" ] && [ "$got" -gt 1000000000 ]
 }
 
-native_upgrade() {   # 0 = started, 3 = none newer, 4 = could not determine, 1 = all attempts failed
+find_installer_app() {  # sets APP_PATH if a usable Install macOS app exists
+  APP_PATH="$(ls -d /Applications/Install\ macOS*.app 2>/dev/null | head -1)"
+  [ -n "$APP_PATH" ] && [ -x "$APP_PATH/Contents/Resources/startosinstall" ]
+}
+
+try_direct() {   # try_direct VERSION URL SIZE
+  local v="$1" url="$2" size="$3" pkg rc
+  if [ -z "$url" ]; then log "No direct download URL known for macOS $v; skipping direct method."; return 1; fi
+  probe_download "$url" "$size" || return 1
+  pkg="/private/var/tmp/InstallAssistant-$v.pkg"
+  RL_DETACH=0; RL_FEED_PASS=0; RL_PROGRESS_FILE="$pkg"; RL_STALL_SEC=$(( STALL_MIN * 60 ))
+  run_logged $(( DOWNLOAD_TIMEOUT_MIN * 60 )) "Direct download macOS $v InstallAssistant.pkg (~$(( size / 1000000000 )) GB)" download_installer "$url" "$pkg" "$size"
+  rc=$?; RL_PROGRESS_FILE=""; RL_STALL_SEC=0
+  if [ "$rc" -ne 0 ]; then warn "Direct download of macOS $v failed (rc=$rc)."; rm -f "$pkg"; return 1; fi
+  log "pkg signature (informational): $(pkgutil --check-signature "$pkg" 2>&1 | grep -m1 -i 'status')"
+  RL_DETACH=0; RL_FEED_PASS=0
+  run_logged 1800 "Install InstallAssistant.pkg (creates the 'Install macOS' app)" installer -pkg "$pkg" -target / -verboseR
+  rc=$?; rm -f "$pkg"
+  [ "$rc" -eq 0 ] && find_installer_app
+}
+
+try_native() {   # try_native VERSION|LATEST
+  local v="$1" t rc tries
+  if [ "$v" = "LATEST" ]; then tries="LATEST"; else tries="$v ${v%%.*}"; fi
+  for t in $tries; do
+    RL_DETACH=0; RL_FEED_PASS=0; RL_STALL_SEC=$(( STALL_MIN * 60 ))
+    if [ "$t" = "LATEST" ]; then
+      run_logged $(( DOWNLOAD_TIMEOUT_MIN * 60 )) "Native download: softwareupdate --fetch-full-installer (latest)" softwareupdate --fetch-full-installer
+    else
+      run_logged $(( DOWNLOAD_TIMEOUT_MIN * 60 )) "Native download: softwareupdate --fetch-full-installer --full-installer-version $t" \
+        softwareupdate --fetch-full-installer --full-installer-version "$t"
+    fi
+    rc=$?; RL_STALL_SEC=0
+    if [ "$rc" -eq 0 ] && find_installer_app; then return 0; fi
+    warn "Native download with '$t' failed or produced no installer (rc=$rc$( [ "$rc" = 125 ] && echo ', stalled' )$( [ "$rc" = 124 ] && echo ', timeout' ))."
+  done
+  return 1
+}
+
+native_upgrade() {   # 0 = n/a, 3 = none newer, 4 = could not determine/complete, 1 = all attempts failed
   step "5/5 Native major upgrade check"
-  discover_candidates || { warn "Could not determine available upgrades."; return 4; }
+  discover_candidates
   local cands; cands="$(cat "$CAND_FILE")"
   if [ -z "$cands" ]; then log "Confirmed: no newer major macOS than $OS_MAJOR is supported/offered for this Mac."; return 3; fi
-  log "Supported upgrade targets for this Mac (newest first): $(echo "$cands" | cut -d'|' -f1 | tr '\n' ' ')"
+  log "Upgrade targets (newest first): $(echo "$cands" | cut -d'|' -f1 | tr '\n' ' ')"
+  [ "$DISCOVERY_DEGRADED" = "1" ] && warn "DEGRADED MODE: version list unavailable; relying on Apple's installer to accept/reject this hardware."
 
-  local attempt=0 line v url size app rc got need pkg
+  local attempt=0 line v rest url size rc got need m methods
+  [ "$DOWNLOAD_ORDER" = "native-first" ] && methods="native direct" || methods="direct native"
   for line in $cands; do
     v="${line%%|*}"; rest="${line#*|}"; url="${rest%%|*}"; size="${rest#*|}"
     attempt=$(( attempt + 1 )); [ "$attempt" -gt "$MAX_INSTALLER_ATTEMPTS" ] && break
     step "Upgrade attempt $attempt: macOS $v"
-    need=$(( size / 1000000000 * 2 + 15 )); [ "$need" -lt "$MIN_FREE_GB" ] && need="$MIN_FREE_GB"
-    log "Free space needed for this attempt: ${need} GB (installer pkg + app + working space); have $(free_gb) GB."
+    if [ "${size:-0}" -gt 0 ] 2>/dev/null; then need=$(( size / 1000000000 * 2 + 15 )); else need=60; fi
+    [ "$need" -lt "$MIN_FREE_GB" ] && need="$MIN_FREE_GB"
+    log "Free space needed for this attempt: ${need} GB; available: $(free_gb) GB."
     [ "$(free_gb)" -ge "$need" ] || { warn "Not enough disk space for macOS $v."; continue; }
     rm -rf /Applications/Install\ macOS*.app 2>/dev/null
     got=0
-
-    # Prefer Apple's softwareupdate downloader: it handles catalog downloads
-    # and interrupted transfers more reliably than a second independent curl.
-    log "Trying softwareupdate --fetch-full-installer first..."
-    for t in "$v" "${v%%.*}"; do
-      RL_DETACH=0; RL_FEED_PASS=0
-      run_logged $(( DOWNLOAD_TIMEOUT_MIN * 60 )) "softwareupdate --fetch-full-installer --full-installer-version $t" \
-        softwareupdate --fetch-full-installer --full-installer-version "$t"
-      rc=$?; app="$(ls -d /Applications/Install\ macOS*.app 2>/dev/null | head -1)"
-      if [ "$rc" -eq 0 ] && [ -n "$app" ] && [ -x "$app/Contents/Resources/startosinstall" ]; then got=1; break; fi
-      warn "fetch-full-installer with '$t' failed or produced no installer (rc=$rc)."
-      [ "$t" = "${v%%.*}" ] && break
+    for m in $methods; do
+      log "Download method: $m"
+      if [ "$m" = "direct" ]; then try_direct "$v" "$url" "$size" && got=1
+      else try_native "$v" && got=1; fi
+      [ "$got" -eq 1 ] && break
+      warn "Method '$m' did not produce an installer; trying the next method."
     done
-
-    # Use the direct InstallAssistant URL only when softwareupdate failed.
-    if [ "$got" -ne 1 ] && [ -n "$url" ]; then
-      log "Trying direct InstallAssistant download as fallback..."
-      pkg="/private/var/tmp/InstallAssistant-$v.pkg"
-      RL_DETACH=0; RL_FEED_PASS=0; RL_PROGRESS_FILE="$pkg"
-      run_logged $(( DOWNLOAD_TIMEOUT_MIN * 60 )) "Download macOS $v InstallAssistant.pkg (~$(( size / 1000000000 )) GB)" download_installer "$url" "$pkg" "$size"
-      rc=$?; RL_PROGRESS_FILE=""
-      if [ "$rc" -eq 0 ]; then
-        log "pkg signature (informational): $(pkgutil --check-signature "$pkg" 2>&1 | grep -m1 -i 'status')"
-        RL_DETACH=0; RL_FEED_PASS=0
-        run_logged 1800 "Install InstallAssistant.pkg (creates Install macOS app)" installer -pkg "$pkg" -target / -verboseR
-        rc=$?; rm -f "$pkg"
-        app="$(ls -d /Applications/Install\ macOS*.app 2>/dev/null | head -1)"
-        [ "$rc" -eq 0 ] && [ -n "$app" ] && [ -x "$app/Contents/Resources/startosinstall" ] && got=1
-      else
-        warn "Direct download of macOS $v failed (rc=$rc)."; rm -f "$pkg"
-      fi
-    fi
-    [ "$got" -eq 1 ] || continue
-    log "Installer ready: $app"
+    [ "$got" -eq 1 ] || { warn "No download method worked for macOS $v."; continue; }
+    log "Installer ready: $APP_PATH"
     warn_user_then_wait "Your Mac will upgrade to macOS $v and restart shortly. Please save your work. Open apps will be closed automatically."
     RL_DETACH=1; RL_FEED_PASS=$FEED
     run_logged $(( UPGRADE_WATCH_MIN * 60 )) "startosinstall macOS $v" \
-      "$app/Contents/Resources/startosinstall" --agreetolicense --forcequitapps --nointeraction "${STOS_AUTH[@]}"
+      "$APP_PATH/Contents/Resources/startosinstall" --agreetolicense --forcequitapps --nointeraction "${STOS_AUTH[@]}"
     rc=$?
     if [ "$rc" -eq 0 ] || [ "$rc" -eq 124 ]; then
       finish 0 UPGRADE_STARTED "macOS $v upgrade launched via startosinstall (rc=$rc). Mac will restart automatically; log: $RL_LOG"
     fi
-    warn "startosinstall for macOS $v exited with rc=$rc (installer error or incompatible). Trying next older candidate."
+    warn "startosinstall for macOS $v exited with rc=$rc (installer error or incompatible hardware). Trying next older candidate."
   done
+  [ "$DISCOVERY_DEGRADED" = "1" ] && return 4
   return 1
 }
 
@@ -493,7 +596,7 @@ native_minor() {
     softwareupdate --install --all --restart "${STOS_AUTH[@]}"
   rc=$?
   if [ "$rc" -eq 0 ] || [ "$rc" -eq 124 ]; then
-    finish 0 UPDATE_STARTED "Updates installing/installed (rc=$rc); Mac will restart if required. Log: $RL_LOG"
+    finish 0 UPDATE_STARTED "Updates installing/installed (rc=$rc); Mac will restart if required.$( [ "$UPGRADE_CHECK_FAILED" = "1" ] && echo " NOTE: major upgrade could NOT be completed/determined (see log)." ) Log: $RL_LOG"
   fi
   finish 21 INSTALLER_FAILED "softwareupdate --install failed (rc=$rc). Log: $RL_LOG"
 }

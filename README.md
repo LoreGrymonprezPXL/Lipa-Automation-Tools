@@ -159,6 +159,21 @@ Set `MAJOR_UPGRADES=false` to install minor updates only. On Apple Silicon,
 `ADMIN_USER` must be a SecureToken/volume-owner account and `ADMIN_PASS` must
 be configured as a masked Datto password variable.
 
+The component is designed for an unattended Datto scheduled job. It must run
+as `root`. Intel Macs do not require an update password; Apple Silicon Macs
+require the credentials of a local SecureToken/volume-owner account. The
+component does not fall back to asking the logged-in user for a password. If
+the credentials are missing or invalid, it exits with `AUTH_FAILED` instead of
+waiting for user input.
+
+By default, a logged-in user receives a 120-second warning before a native
+update or upgrade starts, but no button press is required. To suppress the
+warning completely for a fully silent scheduled job, set:
+
+```text
+USER_WARN_SECONDS=0
+```
+
 Monitor the full workflow:
 
 ```bash

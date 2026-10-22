@@ -16,7 +16,7 @@
 #   DOWNLOAD_TIMEOUT_MIN Cap for each installer download   (default: 120)
 #   UPGRADE_WATCH_MIN   Minutes to watch startosinstall    (default: 30)
 #   USER_WARN_SECONDS   Warning shown to logged-in user before native
-#                       update/upgrade starts              (default: 120)
+#                       update/upgrade starts              (default: 120; 0 disables)
 #   JOB_MAX_MIN         Global hard limit for the whole job   (default: 240; keep below the Datto timeout)
 #   STALL_MIN           Abort a download making no progress for this long (default: 15)
 #   DOWNLOAD_ORDER      direct-first | native-first         (default: direct-first)
@@ -192,6 +192,10 @@ console_user() {
 # Non-blocking user warning (dialog auto-dismisses; job never waits for a click)
 warn_user_then_wait() {
   local msg="$1" cu uid
+  if [ "$USER_WARN_SECONDS" -eq 0 ]; then
+    log "User warning disabled; continuing without interaction."
+    return 0
+  fi
   cu="$(console_user)"
   if [ -z "$cu" ]; then
     log "No user logged in: proceeding immediately; Mac will restart automatically."
@@ -259,11 +263,7 @@ else log "Path: native softwareupdate/startosinstall (macOS 10.15; SUPER v5 requ
 step "4/5 Pre-flight: Apple Silicon authentication"
 if [ "$ARCH" = "arm64" ]; then
   if [ -z "$ADMIN_PASS" ]; then
-    if [ "$USE_SUPER" = "1" ]; then
-      warn "ADMIN_PASS not set. SUPER will ask the logged-in user to save a password (needs a user present)."
-    else
-      finish 13 AUTH_FAILED "Apple Silicon requires ADMIN_PASS for ADMIN_USER='$ADMIN_USER' but none was supplied."
-    fi
+    finish 13 AUTH_FAILED "Apple Silicon requires ADMIN_PASS for unattended execution, but none was supplied for ADMIN_USER='$ADMIN_USER'."
   else
     id "$ADMIN_USER" >/dev/null 2>&1 || finish 13 AUTH_FAILED "Account '$ADMIN_USER' does not exist on this Mac."
     if ! sysadminctl -secureTokenStatus "$ADMIN_USER" 2>&1 | grep -qi "ENABLED"; then
@@ -304,9 +304,9 @@ super_path() {
   if [ "$ARCH" = "arm64" ]; then
     if [ -n "$ADMIN_PASS" ]; then
       SARGS+=( --auth-local-account="$ADMIN_USER" --auth-local-password="$ADMIN_PASS" )
-      [ -n "$(console_user)" ] && SARGS+=( --auth-credential-failover-to-user )
+      # Do not fall back to an interactive user prompt in a scheduled job.
     else
-      SARGS+=( --auth-ask-user-to-save-password )
+      return 3
     fi
   fi
   log "SUPER options: --workflow-install-now $( [ "$MAJOR_UPGRADES" = "true" ] && echo --install-macos-major-upgrades ) $( [ "$MAX_TARGET_MAJOR" -gt 0 ] && echo --install-macos-major-version-target=$MAX_TARGET_MAJOR ) $( [ "$ARCH" = "arm64" ] && echo '[auth options: credentials hidden]' )"

@@ -17,6 +17,10 @@
 #   MAX_DEFERRALS            maximaal aantal keren uitstellen            [2]
 #   TEST_UI_ONLY             alleen meldingen testen, niets upgraden    [true]
 #   TEST_UI_TIMEOUT          tijd per testmelding in seconden           [15]
+#   TEST_LOW_DISK_MSG        melding te weinig opslagruimte tonen       [true]
+#   TEST_NO_AC_MSG           melding laptop niet aan oplader tonen      [true]
+#   TEST_NORMAL_RESTART_MSG  gewone herstartmelding tonen               [true]
+#   TEST_FORCED_RESTART_MSG  verplichte herstartmelding tonen           [true]
 #
 # De gebruiker krijgt ALLEEN een melding als het moet:
 #   - te weinig opslagruimte  -> vrijmaken of Lipa support bellen
@@ -40,6 +44,10 @@ RESTART_WARN_SEC="${RESTART_WARN_SEC:-120}"
 MAX_DEFERRALS="${MAX_DEFERRALS:-2}"
 TEST_UI_ONLY="${TEST_UI_ONLY:-true}"
 TEST_UI_TIMEOUT="${TEST_UI_TIMEOUT:-15}"
+TEST_LOW_DISK_MSG="${TEST_LOW_DISK_MSG:-true}"
+TEST_NO_AC_MSG="${TEST_NO_AC_MSG:-true}"
+TEST_NORMAL_RESTART_MSG="${TEST_NORMAL_RESTART_MSG:-true}"
+TEST_FORCED_RESTART_MSG="${TEST_FORCED_RESTART_MSG:-true}"
 SUPPORT_TEL="011 462325"
 RESTART_MSG="Herstart nodig: uw laptop herstart automatisch over enkele minuten om de update te installeren. Sla nu uw werk op."
 
@@ -281,15 +289,26 @@ if [ "$TEST_UI_ONLY" = true ]; then
 
   echo "=== Lipa ICT UI-testmodus actief: geen update, download of herstart ==="
   log "=== UI-test: geen download, installatie of herstart wordt uitgevoerd ==="
-  notify "TEST: Er is te weinig opslagruimte om de macOS-update te installeren. Maak ruimte vrij of bel Lipa support op $SUPPORT_TEL." "$TEST_UI_TIMEOUT"
-  notify "TEST: Sluit uw laptop aan op netstroom zodat de macOS-update kan doorgaan." "$TEST_UI_TIMEOUT"
-  notify "$RESTART_MSG" "$TEST_UI_TIMEOUT"
+  TEST_LOW_DISK_MSG=$(printf '%s' "$TEST_LOW_DISK_MSG" | tr '[:upper:]' '[:lower:]')
+  TEST_NO_AC_MSG=$(printf '%s' "$TEST_NO_AC_MSG" | tr '[:upper:]' '[:lower:]')
+  TEST_NORMAL_RESTART_MSG=$(printf '%s' "$TEST_NORMAL_RESTART_MSG" | tr '[:upper:]' '[:lower:]')
+  TEST_FORCED_RESTART_MSG=$(printf '%s' "$TEST_FORCED_RESTART_MSG" | tr '[:upper:]' '[:lower:]')
 
-  rm -f "$DEFER_FILE"
-  ask_restart || true
+  [ "$TEST_LOW_DISK_MSG" = true ] && \
+    notify "TEST: Er is te weinig opslagruimte om de macOS-update te installeren. Maak ruimte vrij of bel Lipa support op $SUPPORT_TEL." "$TEST_UI_TIMEOUT"
+  [ "$TEST_NO_AC_MSG" = true ] && \
+    notify "TEST: Sluit uw laptop aan op netstroom zodat de macOS-update kan doorgaan." "$TEST_UI_TIMEOUT"
+  [ "$TEST_NORMAL_RESTART_MSG" = true ] && notify "$RESTART_MSG" "$TEST_UI_TIMEOUT"
 
-  printf '%s\n' "$MAX_DEFERRALS" > "$DEFER_FILE"
-  ask_restart || true
+  if [ "$TEST_NORMAL_RESTART_MSG" = true ]; then
+    rm -f "$DEFER_FILE"
+    ask_restart || true
+  fi
+
+  if [ "$TEST_FORCED_RESTART_MSG" = true ]; then
+    printf '%s\n' "$MAX_DEFERRALS" > "$DEFER_FILE"
+    ask_restart || true
+  fi
   rm -f "$DEFER_FILE"
 
   log "=== UI-test afgerond: alles ongewijzigd ==="

@@ -168,6 +168,10 @@ RESTART_WARN_SEC=120
 MAX_DEFERRALS=2
 TEST_UI_ONLY=true
 TEST_UI_TIMEOUT=15
+TEST_LOW_DISK_MSG=true
+TEST_NO_AC_MSG=true
+TEST_NORMAL_RESTART_MSG=true
+TEST_FORCED_RESTART_MSG=true
 ```
 
 The script currently defaults `TEST_UI_ONLY` to `true`, so a QuickJob only
@@ -189,6 +193,10 @@ sudo ./Datto_macos_update.sh --test-ui
 This test mode shows the low-storage, AC-power, normal restart and final
 restart messages. It does not check for updates, download an installer, run
 `startosinstall`, change the deferral counter or restart the Mac.
+
+Set any individual `TEST_*_MSG` variable to `false` to hide that one test
+message. All test variables are set directly in the script; no Datto command
+line or SSH command is required.
 
 Set `INSTALLER_VERSION` only when a fixed macOS version is required. On Apple
 Silicon, `ADMIN_USER` must be a SecureToken/volume-owner account and

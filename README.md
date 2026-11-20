@@ -105,9 +105,10 @@ The scripts in
 [`endpoint-management/macos/datto/`](endpoint-management/macos/datto/) are
 Bash scripts for Datto RMM:
 
-- `Datto_macos_update.sh` is the single recommended Datto component. It
-  handles macOS updates, major upgrades, unattended authentication, restart
-  handling, logging, and Datto status reporting.
+- `Datto_macos_update.sh` is the recommended Datto component. It starts a
+  short-lived job, then runs the update in the background as a one-time
+  LaunchDaemon. It handles major upgrades, regular updates, AC power,
+  disk space and restart notifications.
 - `MacOSAutoPatching.sh` is an older alternative workflow. Do not deploy both
   scripts as scheduled jobs on the same device.
 
@@ -116,10 +117,8 @@ environment variables and root permissions for the target devices. Keeping
 the second file in the repository prevents accidental loss of the older
 workflow, but it is not part of the recommended Datto policy.
 
-The supported Lipa ICT baseline is **macOS 11 Big Sur and newer**. Devices
-running an older macOS version are reported as unsupported and are not changed
-by this component. The test device may therefore be on Big Sur; versions below
-Big Sur are outside the intended rollout scope.
+The supported Lipa ICT baseline is **macOS 13.3 Ventura and newer**. Older
+macOS versions are stopped before the update starts.
 
 #### Datto verification guide
 
@@ -133,7 +132,7 @@ id -u
 sw_vers -productVersion
 uname -m
 pmset -g batt
-df -h /
+df -Pk /System/Volumes/Data
 softwareupdate --list
 ```
 
@@ -148,13 +147,15 @@ chmod 700 ./Datto_macos_update.sh
 sudo ./Datto_macos_update.sh
 ```
 
-The full workflow checks power, disk space, Apple connectivity and Apple
-Silicon credentials, then uses SUPER where available and falls back to
-`softwareupdate` or `startosinstall`.
+The Datto job first checks macOS support, AC power and free disk space.
+Apple Silicon also requires a valid volume-owner account. The background
+worker then:
 
-The component uses SUPER when it is supplied by the Datto component or is
-already installed on the Mac. If SUPER is unavailable, it uses Apple's native
-`softwareupdate` and `startosinstall` tools instead.
+1. Downloads the newest full installer from Apple's update catalog.
+2. Waits for AC power and asks the user to postpone the restart at most twice.
+3. Starts `startosinstall`.
+4. Falls back to normal `softwareupdate --install --all --restart` updates if
+   no suitable major installer is available.
 
 Important Datto variables include:
 
@@ -162,65 +163,43 @@ Important Datto variables include:
 ADMIN_USER=clientadmin
 ADMIN_PASS=<masked-password>
 MIN_FREE_GB=35
-MAJOR_UPGRADES=true
-MAX_TARGET_MAJOR=0
-MAX_WAIT_MIN=90
-JOB_MAX_MIN=240
+INSTALLER_VERSION=
+RESTART_WARN_SEC=120
+MAX_DEFERRALS=2
 ```
 
-Set `MAJOR_UPGRADES=false` to install minor updates only. On Apple Silicon,
-`ADMIN_USER` must be a SecureToken/volume-owner account and `ADMIN_PASS` must
-be configured as a masked Datto password variable.
+Set `INSTALLER_VERSION` only when a fixed macOS version is required. On Apple
+Silicon, `ADMIN_USER` must be a SecureToken/volume-owner account and
+`ADMIN_PASS` must be configured as a masked Datto password variable.
 
 The component is designed for an unattended Datto scheduled job. It must run
 as `root`. Intel Macs do not require an update password; Apple Silicon Macs
 require the credentials of a local SecureToken/volume-owner account. The
 component does not fall back to asking the logged-in user for a password. If
-the credentials are missing or invalid, it exits with `AUTH_FAILED` instead of
-waiting for user input.
-
-By default, a logged-in user receives a 120-second warning before a native
-update or upgrade starts, but no button press is required. To suppress the
-warning completely for a fully silent scheduled job, set:
-
-```text
-USER_WARN_SECONDS=0
-```
+the credentials are missing or invalid, it stops with exit code `2`.
 
 Monitor the full workflow:
 
 ```bash
-sudo ls -lt /var/log/DattoMacUpdate/
-sudo tail -f /var/log/datto-macos-upgrade.log
-sudo tail -f "$(ls -t /var/log/DattoMacUpdate/job-*.log | head -n 1)"
-sudo grep -E "DATTO_RESULT|ERROR|WARN|UP_TO_DATE|UPDATE_STARTED|UPGRADE_STARTED|SUPER_" \
-  /var/log/DattoMacUpdate/job-*.log
-pgrep -alf "softwareupdate|startosinstall|super|mist"
+sudo tail -f /var/log/lipa-macos-upgrade.log
+sudo pgrep -af "softwareupdate|startosinstall"
 ```
 
-The final `DATTO_RESULT` line and exit code are the main Datto indicators.
-Successful results include `UP_TO_DATE`, `UPDATE_STARTED`, `UPGRADE_STARTED`,
-`SUPER_COMPLETED`, and `SUPER_IN_PROGRESS`. Common failure codes are:
+The main exit codes are:
 
-- `10`: no AC power
-- `11`: insufficient disk space
-- `12`: Apple update server/network failure
-- `13`: Apple Silicon authentication failure
-- `14`: unsupported macOS or not running as root
-- `20`: timeout
-- `21`: installer failure
-- `22`: major-upgrade check failed
-- `30`: SUPER error
+- `0`: the background update was started or no action was required
+- `1`: the LaunchDaemon could not be started
+- `2`: a pre-flight check failed
+
+Detailed download, installer and restart status is written to
+`/var/log/lipa-macos-upgrade.log`.
 
 After the Mac restarts, verify the result:
 
 ```bash
 sw_vers -productVersion
 softwareupdate --list
-pgrep -alf "softwareupdate|startosinstall|super|mist"
-test ! -e "/Library/Application Support/MSP-Patching/restart_pending.state" \
-  && echo "Restart state cleared" \
-  || echo "Restart still pending"
+sudo pgrep -af "softwareupdate|startosinstall"
 ```
 
 ## Safety and contribution notes

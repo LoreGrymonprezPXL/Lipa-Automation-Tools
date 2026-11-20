@@ -15,7 +15,7 @@
 #   INSTALLER_VERSION        vaste installerversie, bv. 26.7.3           [leeg = Apple kiest]
 #   RESTART_WARN_SEC         zo lang staat de herstart-melding open      [120]
 #   MAX_DEFERRALS            maximaal aantal keren uitstellen            [2]
-#   TEST_UI_ONLY             alleen meldingen testen, niets upgraden    [false]
+#   TEST_UI_ONLY             alleen meldingen testen, niets upgraden    [true]
 #   TEST_UI_TIMEOUT          tijd per testmelding in seconden           [15]
 #
 # De gebruiker krijgt ALLEEN een melding als het moet:
@@ -38,7 +38,7 @@ MIN_FREE_GB="${MIN_FREE_GB:-35}"
 INSTALLER_VERSION="${INSTALLER_VERSION:-}"
 RESTART_WARN_SEC="${RESTART_WARN_SEC:-120}"
 MAX_DEFERRALS="${MAX_DEFERRALS:-2}"
-TEST_UI_ONLY="${TEST_UI_ONLY:-false}"
+TEST_UI_ONLY="${TEST_UI_ONLY:-true}"
 TEST_UI_TIMEOUT="${TEST_UI_TIMEOUT:-15}"
 SUPPORT_TEL="011 462325"
 RESTART_MSG="Herstart nodig: uw laptop herstart automatisch over enkele minuten om de update te installeren. Sla nu uw werk op."

@@ -170,11 +170,14 @@ TEST_UI_ONLY=true
 TEST_UI_TIMEOUT=15
 ```
 
-To test every restart-related message without downloading or upgrading macOS,
-run the component as `root` with `TEST_UI_ONLY=true`:
+The script currently defaults `TEST_UI_ONLY` to `true`, so a QuickJob only
+shows the UI messages and does not update or restart the Mac. Set
+`TEST_UI_ONLY=false` as a Datto component variable to run the real update
+workflow.
 
 ```bash
-sudo TEST_UI_ONLY=true TEST_UI_TIMEOUT=15 ./Datto_macos_update.sh
+TEST_UI_ONLY=false
+TEST_UI_TIMEOUT=120
 ```
 
 This test mode shows the low-storage, AC-power, normal restart and final

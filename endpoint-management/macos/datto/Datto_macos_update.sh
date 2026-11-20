@@ -15,6 +15,8 @@
 #   INSTALLER_VERSION        vaste installerversie, bv. 26.7.3           [leeg = Apple kiest]
 #   RESTART_WARN_SEC         zo lang staat de herstart-melding open      [120]
 #   MAX_DEFERRALS            maximaal aantal keren uitstellen            [2]
+#   TEST_UI_ONLY             alleen meldingen testen, niets upgraden    [false]
+#   TEST_UI_TIMEOUT          tijd per testmelding in seconden           [15]
 #
 # De gebruiker krijgt ALLEEN een melding als het moet:
 #   - te weinig opslagruimte  -> vrijmaken of Lipa support bellen
@@ -36,6 +38,8 @@ MIN_FREE_GB="${MIN_FREE_GB:-35}"
 INSTALLER_VERSION="${INSTALLER_VERSION:-}"
 RESTART_WARN_SEC="${RESTART_WARN_SEC:-120}"
 MAX_DEFERRALS="${MAX_DEFERRALS:-2}"
+TEST_UI_ONLY="${TEST_UI_ONLY:-false}"
+TEST_UI_TIMEOUT="${TEST_UI_TIMEOUT:-15}"
 SUPPORT_TEL="011 462325"
 RESTART_MSG="Herstart nodig: uw laptop herstart automatisch over enkele minuten om de update te installeren. Sla nu uw werk op."
 
@@ -257,6 +261,29 @@ EOF
   log "Daemon $label: $(launchctl print "system/$label" 2>/dev/null | grep -E 'state =|last exit code' | tr -s ' \n' ' ')"
   rm -f "$plist"                                # worker verwijdert het wachtwoord na het lezen
 }
+
+# ---- Veilige UI-testmodus -----------------------------------------------------
+if [ "$TEST_UI_ONLY" = true ]; then
+  mkdir -p "$DIR"; chmod 755 "$DIR"
+  touch "$LOG"; chmod 644 "$LOG"
+  RESTART_WARN_SEC="$TEST_UI_TIMEOUT"
+  rm -f "$DEFER_FILE"
+
+  log "=== UI-test: geen download, installatie of herstart wordt uitgevoerd ==="
+  notify "TEST: Er is te weinig opslagruimte om de macOS-update te installeren. Maak ruimte vrij of bel Lipa support op $SUPPORT_TEL." "$TEST_UI_TIMEOUT"
+  notify "TEST: Sluit uw laptop aan op netstroom zodat de macOS-update kan doorgaan." "$TEST_UI_TIMEOUT"
+  notify "$RESTART_MSG" "$TEST_UI_TIMEOUT"
+
+  rm -f "$DEFER_FILE"
+  ask_restart || true
+
+  printf '%s\n' "$MAX_DEFERRALS" > "$DEFER_FILE"
+  ask_restart || true
+  rm -f "$DEFER_FILE"
+
+  log "=== UI-test afgerond: alles ongewijzigd ==="
+  exit 0
+fi
 
 # ---- Starter: pre-flight, daemon starten, afsluiten --------------------------
 [ "$(id -u)" -eq 0 ] || { echo "Dit script moet als root draaien."; exit 2; }

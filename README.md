@@ -166,7 +166,20 @@ MIN_FREE_GB=35
 INSTALLER_VERSION=
 RESTART_WARN_SEC=120
 MAX_DEFERRALS=2
+TEST_UI_ONLY=true
+TEST_UI_TIMEOUT=15
 ```
+
+To test every restart-related message without downloading or upgrading macOS,
+run the component as `root` with `TEST_UI_ONLY=true`:
+
+```bash
+sudo TEST_UI_ONLY=true TEST_UI_TIMEOUT=15 ./Datto_macos_update.sh
+```
+
+This test mode shows the low-storage, AC-power, normal restart and final
+restart messages. It does not check for updates, download an installer, run
+`startosinstall`, change the deferral counter or restart the Mac.
 
 Set `INSTALLER_VERSION` only when a fixed macOS version is required. On Apple
 Silicon, `ADMIN_USER` must be a SecureToken/volume-owner account and

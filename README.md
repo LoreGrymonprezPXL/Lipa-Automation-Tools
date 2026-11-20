@@ -180,6 +180,12 @@ TEST_UI_ONLY=false
 TEST_UI_TIMEOUT=120
 ```
 
+As an extra force option from SSH or a QuickJob shell, run:
+
+```bash
+sudo ./Datto_macos_update.sh --test-ui
+```
+
 This test mode shows the low-storage, AC-power, normal restart and final
 restart messages. It does not check for updates, download an installer, run
 `startosinstall`, change the deferral counter or restart the Mac.

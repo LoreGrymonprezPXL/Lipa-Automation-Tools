@@ -263,12 +263,23 @@ EOF
 }
 
 # ---- Veilige UI-testmodus -----------------------------------------------------
+TEST_UI_ONLY=$(printf '%s' "$TEST_UI_ONLY" | tr '[:upper:]' '[:lower:]')
+case "$TEST_UI_ONLY" in
+  true|1|yes|on) TEST_UI_ONLY=true ;;
+  false|0|no|off) TEST_UI_ONLY=false ;;
+  *) TEST_UI_ONLY=false ;;
+esac
+case "${1:-}" in
+  --test-ui|test-ui) TEST_UI_ONLY=true ;;
+esac
+
 if [ "$TEST_UI_ONLY" = true ]; then
   mkdir -p "$DIR"; chmod 755 "$DIR"
   touch "$LOG"; chmod 644 "$LOG"
   RESTART_WARN_SEC="$TEST_UI_TIMEOUT"
   rm -f "$DEFER_FILE"
 
+  echo "=== Lipa ICT UI-testmodus actief: geen update, download of herstart ==="
   log "=== UI-test: geen download, installatie of herstart wordt uitgevoerd ==="
   notify "TEST: Er is te weinig opslagruimte om de macOS-update te installeren. Maak ruimte vrij of bel Lipa support op $SUPPORT_TEL." "$TEST_UI_TIMEOUT"
   notify "TEST: Sluit uw laptop aan op netstroom zodat de macOS-update kan doorgaan." "$TEST_UI_TIMEOUT"

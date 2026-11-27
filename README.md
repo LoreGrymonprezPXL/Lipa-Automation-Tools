@@ -260,7 +260,20 @@ irm "https://raw.githubusercontent.com/LoreGrymonprezPXL/Lipa-Automation-Tools/r
 
 This runs the current contents of `main`; review the approved script before execution.
 
-**Prompts:** Enter customer, ticket, computer name and whether to create a local end-user account. Select the needed modules. Pressing Enter at the module prompt selects modules 1 and 2.
+**Dashboard:** On launch, the framed dashboard appears before deployment intake and remains open until you choose `Q`. No deployment action runs until selected. Choose `6` to open the separate Handover Check immediately without completing deployment intake.
+
+| Choice | Action |
+| --- | --- |
+| 1 | Full setup: system baseline, selected modules, Windows Update and detected vendor update tools |
+| 2 | Run only the software modules selected during intake |
+| 3 | Run only the system baseline |
+| 4 | Run only Windows and vendor updates |
+| 5 | Read-only audit and ticket report; no installation or configuration changes |
+| 6 | Open the separate Handover Check for device validation and selective repairs |
+| 7 | Create a ticket report from the current inventory |
+| Q | Close the dashboard |
+
+**Deployment intake:** For setup and report actions that require it, enter customer, ticket and computer details and choose whether to create the local end-user account. Select the needed software modules. Pressing Enter at the module prompt selects modules 1 and 2.
 
 | Choice | Action |
 | --- | --- |
@@ -272,6 +285,8 @@ This runs the current contents of `main`; review the approved script before exec
 | 6 | Audit only; cannot be combined with configuration modules |
 
 A normal setup also starts/checks Windows Update and detected HP/Dell update tools. Review the technical note and warnings. Restart when the device name or updates require it, then verify the result.
+
+The Handover Check remains separate. Its `F` action offers repairable warnings and failures so you can select only the items to fix. If its script is not beside Lipa-Deploy, the dashboard downloads it to a temporary file and removes it after use. If audit-only was selected during intake, baseline and update actions require explicit confirmation before making changes.
 
 ### Finish the end-user profile
 

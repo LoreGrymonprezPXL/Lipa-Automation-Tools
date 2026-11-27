@@ -1236,27 +1236,193 @@ function Write-TicketOutput {
     }
 }
 
+
+function Invoke-HandoverCheck {
+    $handoverPath = $null
+    $temporaryPath = $null
+    $previousProtocol = $null
+
+    try {
+        if ($PSScriptRoot) {
+            $candidatePath = Join-Path $PSScriptRoot 'Lipa-Handover-Check.ps1'
+            if (Test-Path -LiteralPath $candidatePath -PathType Leaf) {
+                $handoverPath = $candidatePath
+            }
+        }
+
+        if (-not $handoverPath) {
+            $temporaryPath = Join-Path $env:TEMP ("Lipa-Handover-Check-{0}.ps1" -f [guid]::NewGuid().ToString('N'))
+            $previousProtocol = [Net.ServicePointManager]::SecurityProtocol
+            try {
+                [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+                Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/LoreGrymonprezPXL/Lipa-Automation-Tools/refs/heads/main/checks/Lipa-Handover-Check.ps1' -OutFile $temporaryPath -UseBasicParsing -ErrorAction Stop
+            }
+            finally {
+                [Net.ServicePointManager]::SecurityProtocol = $previousProtocol
+            }
+
+            if (-not (Test-Path -LiteralPath $temporaryPath -PathType Leaf)) {
+                throw 'De Handover Check kon niet naar een tijdelijk bestand worden gedownload.'
+            }
+            $handoverPath = $temporaryPath
+        }
+
+        & $handoverPath -CustomerName $script:CustomerName -TicketNr $script:TicketNumber -CustomerUser $script:EndUser -ExpectedHostname $script:ComputerName
+    }
+    finally {
+        if ($temporaryPath -and (Test-Path -LiteralPath $temporaryPath)) {
+            Remove-Item -LiteralPath $temporaryPath -Force -ErrorAction Stop
+        }
+    }
+}
+
+function Show-DeployDashboard {
+    Clear-Host
+    Write-Host '+----------------------------------------------------------+' -ForegroundColor Cyan
+    Write-Host '| LIPA ICT - WINDOWS DEPLOY DASHBOARD                      |' -ForegroundColor Cyan
+    Write-Host '+----------------------------------------------------------+' -ForegroundColor Cyan
+    Write-Host '| 1  Volledige configuratie (baseline, modules en updates) |'
+    Write-Host '| 2  Alleen de geselecteerde softwaremodules              |'
+    Write-Host '| 3  Alleen systeem-baseline                               |'
+    Write-Host '| 4  Alleen Windows- en fabrikantupdates                  |'
+    Write-Host '| 5  Alleen controleren en ticketrapport maken             |'
+    Write-Host '| 6  Handover Check openen (controle en gericht herstel)   |'
+    Write-Host '| 7  Ticketrapport maken van de huidige toestand           |'
+    Write-Host '| Q  Stoppen                                                |'
+    Write-Host '+----------------------------------------------------------+' -ForegroundColor Cyan
+    Write-Host 'M365-aanmelding en SOS Lipa rond je af in de eindgebruikerssessie.' -ForegroundColor Yellow
+    Write-Host ''
+}
+
+function Confirm-DeployChanges {
+    param([string]$ActionName)
+
+    if (-not $script:IsAuditOnly) { return $true }
+    return (Read-YesNo "Audit-only was geselecteerd. Toch '$ActionName' uitvoeren?" $false)
+}
+
+function Invoke-DashboardAction {
+    param([string]$Choice)
+
+    switch ($Choice) {
+        '1' {
+            if ($script:IsAuditOnly) {
+                Write-Status 'Audit-only actief: er worden geen configuratiewijzigingen of installaties uitgevoerd.' 'INFO'
+            }
+            $inventory = Invoke-Deployment
+            $blocks = New-TicketOutput $inventory
+            Write-TicketOutput $blocks
+        }
+        '2' {
+            $softwareModules = @($script:SelectedModules | Where-Object { $_ -in @('1', '2', '3', '4', '5') })
+            if ($softwareModules.Count -eq 0) {
+                Write-Status 'Geen softwaremodules geselecteerd. Kies bij de intake een of meer modules 1 tot en met 5.' 'WARN'
+                return
+            }
+            if (-not (Confirm-DeployChanges 'de geselecteerde softwaremodules')) { return }
+
+            if ($softwareModules -contains '1') { Install-BasicSoftware }
+            if ($softwareModules -contains '2') { Install-Office365 }
+            if ($softwareModules -contains '3') { Install-EidSoftware }
+            if ($softwareModules -contains '4') {
+                Invoke-DeployStep 'Geselecteerde bloatware verwijderen' {
+                    Remove-CuratedBloatware
+                } | Out-Null
+            }
+            if ($softwareModules -contains '5') { Invoke-VpnPreparation }
+            [void](Get-HardwareInventory)
+        }
+        '3' {
+            if (-not (Confirm-DeployChanges 'de systeem-baseline')) { return }
+            Set-SystemBaseline
+            [void](Get-HardwareInventory)
+        }
+        '4' {
+            if (-not (Confirm-DeployChanges 'Windows- en fabrikantupdates')) { return }
+            Invoke-WindowsUpdates
+            Start-VendorUpdateTools
+            [void](Get-HardwareInventory)
+        }
+        '5' {
+            $previousAuditOnly = $script:IsAuditOnly
+            $previousModules = $script:SelectedModules
+            try {
+                $script:IsAuditOnly = $true
+                $script:SelectedModules = @()
+                $inventory = Invoke-Deployment
+                $blocks = New-TicketOutput $inventory
+                Write-TicketOutput $blocks
+            }
+            finally {
+                $script:IsAuditOnly = $previousAuditOnly
+                $script:SelectedModules = $previousModules
+            }
+        }
+        '6' {
+            Invoke-HandoverCheck
+        }
+        '7' {
+            $inventory = Get-HardwareInventory
+            Add-Action 'Inventarisatie uitgevoerd' @('Huidige hardware- en softwaretoestand opgenomen in het ticketrapport.')
+            $blocks = New-TicketOutput $inventory
+            Write-TicketOutput $blocks
+        }
+        default {
+            Write-Status "Onbekende keuze '$Choice'. Kies 1 tot en met 7 of Q." 'WARN'
+        }
+    }
+}
+
 try {
     if (-not (Test-Administrator)) {
         Write-Status 'Administratorrechten zijn vereist; er wordt om elevation gevraagd.' 'WARN'
         if (Start-ElevatedCopy) { exit }
     }
 
-    $profile = Get-DeviceProfile
-    Write-Host ''
     Write-Host 'Lipa ICT - Windows toestel klaarzetten' -ForegroundColor Cyan
-    Read-Intake $profile
+    $intakeReady = $false
 
-    if ($script:IsAuditOnly) {
-        Write-Status 'Audit-only gekozen: geen installaties of configuratiewijzigingen.' 'INFO'
+    while ($true) {
+        Show-DeployDashboard
+        $choice = (Read-Host 'Keuze (1-7, Q = stoppen)').Trim().ToUpperInvariant()
+        if ($choice -eq 'Q') { break }
+        if (-not $choice) { continue }
+        if ($choice -notin @('1', '2', '3', '4', '5', '6', '7')) {
+            Write-Status "Onbekende keuze '$choice'. Kies 1 tot en met 7 of Q." 'WARN'
+            [void](Read-Host 'Druk op Enter om terug te keren naar het dashboard')
+            continue
+        }
+
+        try {
+            if ($choice -eq '6') {
+                Invoke-HandoverCheck
+            }
+            else {
+                if (-not $intakeReady) {
+                    $profile = Get-DeviceProfile
+                    Write-Host "Detectie: $($profile.OS.Caption), editie $script:Edition, toesteltype $script:FormFactor"
+                    Read-Intake $profile
+                    $intakeReady = $true
+                    if ($script:IsAuditOnly) {
+                        Write-Status 'Audit-only geselecteerd. Configuratiewijzigingen vragen afzonderlijke bevestiging.' 'INFO'
+                    }
+                }
+                Invoke-DashboardAction $choice
+            }
+        }
+        catch {
+            Write-Status "Actie '$choice' mislukt: $($_.Exception.Message)" 'FAIL'
+            Write-Host 'De dashboard-sessie blijft open; controleer de fout voordat je verdergaat.' -ForegroundColor Yellow
+        }
+
+        [void](Read-Host 'Druk op Enter om terug te keren naar het dashboard')
     }
 
-    $inventory = Invoke-Deployment
-    $blocks = New-TicketOutput $inventory
-    Write-TicketOutput $blocks
-
     Write-Host ''
-    Write-Status 'Uitvoering afgewerkt. Bewaar de technische notitie beveiligd.' 'OK'
+    Write-Status 'Dashboard afgesloten.' 'OK'
+    if ($script:NeedReboot) {
+        Write-Status 'Een herstart is vereist om wijzigingen volledig toe te passen.' 'WARN'
+    }
 }
 catch {
     Write-Status "Fatale fout: $($_.Exception.Message)" 'FAIL'

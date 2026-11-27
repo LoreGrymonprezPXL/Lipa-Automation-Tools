@@ -69,7 +69,7 @@ $AppCatalog = @(
     @{ Name = 'Adobe Acrobat Reader';  Winget = 'Adobe.Acrobat.Reader.64-bit'; Choco = 'adobereader'; Match = '*Acrobat*'; Default = 'Werk', 'Gaming' },
     @{ Name = 'Foxit PDF Reader';      Winget = 'Foxit.FoxitReader'; Choco = 'foxitreader'; Match = '*Foxit*'; Default = 'Werk' },
     @{ Name = 'Belgian eID middleware'; Winget = 'BelgianGovernment.eIDmiddleware'; Choco = 'eid-belgium', 'belgian-eid-middleware'; Match = '*eID*Middleware*|*Belgium eID*'; Default = 'Werk' },
-    @{ Name = 'Belgian eID viewer';    Winget = 'BelgianGovernment.eIDViewer'; Choco = 'eid-belgium-viewer', 'belgian-eid-viewer'; Match = '*eID Viewer*'; Default = 'Werk' },
+    @{ Name = 'Belgian eID viewer';    Winget = 'BelgianGovernment.eIDViewer'; Choco = 'eid-belgium-viewer', 'belgian-eid-viewer'; Match = '*eID*Viewer*'; Default = 'Werk' },
     @{ Name = 'OpenVPN Connect';       Winget = 'OpenVPNTechnologies.OpenVPNConnect'; Choco = 'openvpn-connect'; Match = '*OpenVPN Connect*'; Default = 'Werk' },
     @{ Name = 'VLC media player';      Winget = 'VideoLAN.VLC'; Choco = 'vlc'; Match = '*VLC*'; Default = 'Werk', 'Gaming' },
     @{ Name = 'Microsoft 365 Apps (licentie nodig)'; Winget = 'Microsoft.Office'; Choco = 'office365business', 'office365proplus'; Match = '*Microsoft 365*|*Office 16*'; Default = @(); Job = 'Office' },
@@ -131,6 +131,7 @@ $script:ActionLog = New-Object System.Collections.Generic.List[string]
 $script:Creds = New-Object System.Collections.Generic.List[object]
 $script:InstallOk = New-Object System.Collections.Generic.List[string]
 $script:InstallFail = New-Object System.Collections.Generic.List[string]
+$script:SplashtopDownloadJob = $null
 $script:Done = @{}
 $script:HwTests = [ordered]@{}
 $script:Job = @{ Office = $false; TrendMicro = $false; Datto = $false; DataTransfer = $false; Backup = $false }
@@ -238,9 +239,17 @@ function Invoke-Safe {
 }
 
 function Get-InstalledSoftware {
-    $paths = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*',
+    $paths = @(
+    'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*',
     'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*',
     'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*'
+    )
+    $userHives = @(Get-ChildItem -LiteralPath 'Registry::HKEY_USERS' -ErrorAction SilentlyContinue |
+        Where-Object { $_.PSChildName -match '^S-1-5-21-(\d+-){3}\d+$' })
+    foreach ($hive in $userHives) {
+        $paths += "Registry::HKEY_USERS\$($hive.PSChildName)\Software\Microsoft\Windows\CurrentVersion\Uninstall\*"
+        $paths += "Registry::HKEY_USERS\$($hive.PSChildName)\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*"
+    }
     Get-ItemProperty $paths -ErrorAction SilentlyContinue |
         Where-Object { $_.DisplayName -and -not $_.SystemComponent } |
         ForEach-Object {
@@ -611,9 +620,35 @@ function Action-Debloat {
 
 function Test-AppInstalled {
     param($App, $Software)
-    if ($App.Special -eq 'Splashtop') { return (Test-Path (Join-Path 'C:\Users\Public\Desktop' $SplashtopDesktopName)) }
+    if ($App.Special -eq 'Splashtop') {
+        $desktopPaths = @(
+            'C:\Users\Public\Desktop',
+            (Join-Path $env:USERPROFILE 'Desktop')
+        )
+        $customer = if ($script:CustomerUserResolved) { $script:CustomerUserResolved } else { $CustomerUser }
+        if ($customer) { $desktopPaths += Join-Path (Join-Path 'C:\Users' $customer) 'Desktop' }
+        return [bool]($desktopPaths | Where-Object { Test-Path -LiteralPath (Join-Path $_ $SplashtopDesktopName) })
+    }
     if (-not $App.Match) { return $false }
     foreach ($s in $Software) { if (Test-NameMatch $s.Name $App.Match) { return $true } }
+    if ($App.Name -eq 'HP Image Assistant') {
+        $paths = @(
+            (Join-Path $env:ProgramFiles 'HP\HP Image Assistant\HPImageAssistant.exe'),
+            (Join-Path ${env:ProgramFiles(x86)} 'HP\HP Image Assistant\HPImageAssistant.exe')
+        )
+        if ($paths | Where-Object { Test-Path -LiteralPath $_ }) { return $true }
+    }
+    if ($App.Name -eq 'HP Support Assistant') {
+        $hpRoots = @("$env:ProgramFiles\HP", "${env:ProgramFiles(x86)}\HP") |
+            Where-Object { Test-Path -LiteralPath $_ }
+        if ($hpRoots.Count -gt 0 -and (Get-ChildItem -Path $hpRoots -Filter 'HPSupportAssistant.exe' -File -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1)) {
+            return $true
+        }
+    }
+    if ($App.Winget -and (Get-Command winget -ErrorAction SilentlyContinue)) {
+        $wingetResult = @(& winget list --id $App.Winget --exact --accept-source-agreements --disable-interactivity 2>$null)
+        if ($LASTEXITCODE -eq 0 -and ($wingetResult -join "`n") -match [regex]::Escape($App.Winget)) { return $true }
+    }
     return $false
 }
 
@@ -633,18 +668,84 @@ function Install-ChocolateyIfNeeded {
 
 function Install-Splashtop {
     $dl = Join-Path $env:USERPROFILE 'Downloads'
-    $start = Get-Date
-    Say-Info 'Downloadpagina wordt geopend in de browser...'
-    Start-Process $SplashtopUrl
-    Say-Info 'Wachten op gedownload Splashtop-bestand (max 2 min)...'
-    $file = $null
-    for ($i = 0; $i -lt 24 -and -not $file; $i++) {
-        Start-Sleep -Seconds 5
-        $file = Get-ChildItem $dl -Filter '*Splashtop*.exe' -ErrorAction SilentlyContinue | Where-Object { $_.LastWriteTime -ge $start.AddSeconds(-5) } | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+    $target = Join-Path 'C:\Users\Public\Desktop' $SplashtopDesktopName
+    if ($script:SplashtopDownloadJob -and $script:SplashtopDownloadJob.State -eq 'Running') {
+        Say-Info 'Splashtop wordt al gedownload; je kan verder.'
+        return 'pending'
     }
-    if (-not $file) { return $false }
-    Copy-Item $file.FullName (Join-Path 'C:\Users\Public\Desktop' $SplashtopDesktopName) -Force
-    return $true
+
+    Update-SplashtopDownload
+    $file = Get-ChildItem -LiteralPath $dl -Filter '*Splashtop*.exe' -File -ErrorAction SilentlyContinue |
+        Sort-Object LastWriteTime -Descending | Select-Object -First 1
+    if ($file) {
+        Copy-Item -LiteralPath $file.FullName -Destination $target -Force -ErrorAction Stop
+        return 'download'
+    }
+
+    $start = Get-Date
+    $job = Start-Job -ArgumentList $dl, $start, $target -ScriptBlock {
+        param($downloadPath, $startedAt, $destination)
+
+        $previousLength = -1
+        $stableChecks = 0
+        for ($i = 0; $i -lt 120; $i++) {
+            $file = Get-ChildItem -LiteralPath $downloadPath -Filter '*Splashtop*.exe' -File -ErrorAction SilentlyContinue |
+                Where-Object { $_.LastWriteTime -ge $startedAt.AddSeconds(-5) } |
+                Sort-Object LastWriteTime -Descending | Select-Object -First 1
+            if ($file -and $file.Length -gt 0) {
+                if ($file.Length -eq $previousLength) { $stableChecks++ }
+                else { $stableChecks = 0 }
+
+                if ($stableChecks -ge 2) {
+                    try {
+                        Copy-Item -LiteralPath $file.FullName -Destination $destination -Force -ErrorAction Stop
+                        return [pscustomobject]@{ Success = $true; Message = 'Splashtop SOS naar het openbare bureaublad gekopieerd.' }
+                    }
+                    catch {
+                        return [pscustomobject]@{ Success = $false; Message = $_.Exception.Message }
+                    }
+                }
+                $previousLength = $file.Length
+            }
+            else {
+                $previousLength = -1
+                $stableChecks = 0
+            }
+            Start-Sleep -Seconds 5
+        }
+        return [pscustomobject]@{ Success = $false; Message = 'Download niet binnen 10 minuten gevonden.' }
+    }
+    try {
+        Start-Process $SplashtopUrl -ErrorAction Stop
+    }
+    catch {
+        Stop-Job -Job $job -ErrorAction SilentlyContinue
+        Remove-Job -Job $job -Force -ErrorAction SilentlyContinue
+        throw
+    }
+    $script:SplashtopDownloadJob = $job
+    Say-Info 'Download gestart op de achtergrond. Je kan meteen verder; SOS Lipa.exe wordt automatisch op het openbare bureaublad geplaatst zodra de download klaar is.'
+    return 'pending'
+}
+
+function Update-SplashtopDownload {
+    $job = $script:SplashtopDownloadJob
+    if (-not $job -or $job.State -eq 'Running') { return }
+
+    $result = @(Receive-Job -Job $job -ErrorAction SilentlyContinue)
+    if ($job.State -eq 'Completed' -and $result.Count -gt 0 -and $result[-1].Success) {
+        Say-Ok $result[-1].Message
+        $script:InstallOk.Add('Splashtop SOS (Lipa)')
+        $script:ActionLog.Add('Splashtop SOS (Lipa) beschikbaar')
+    }
+    else {
+        $message = if ($result.Count -gt 0) { $result[-1].Message } else { $job.ChildJobs[0].JobStateInfo.Reason.Message }
+        if (-not $message) { $message = 'Download niet voltooid.' }
+        Say-Warn "Splashtop-download niet afgerond: $message"
+        $script:InstallFail.Add('Splashtop SOS (Lipa)')
+    }
+    Remove-Job -Job $job -Force -ErrorAction SilentlyContinue
+    $script:SplashtopDownloadJob = $null
 }
 
 function Install-App {
@@ -652,7 +753,7 @@ function Install-App {
     if ($App.GamingOnly -and $PcType -ne 'Gaming') {
         throw "$($App.Name) mag niet op een werk-pc worden geïnstalleerd."
     }
-    if ($App.Special -eq 'Splashtop') { return $(if (Install-Splashtop) { 'download' } else { $null }) }
+    if ($App.Special -eq 'Splashtop') { return Install-Splashtop }
     if ($App.Winget -and (Get-Command winget -ErrorAction SilentlyContinue)) {
         $src = if ($App.Winget -match '^9[A-Z0-9]{11}$') { 'msstore' } else { 'winget' }
         Say-Info "winget ($src): $($App.Winget)"
@@ -706,6 +807,7 @@ function Action-Software {
         Write-Section "[$n/$total] $($app.Name)"
         if (Test-AppInstalled $app $sw) { Say-Ok 'Reeds geinstalleerd.'; continue }
         $method = Install-App $app
+        if ($method -eq 'pending') { continue }
         if ($method) { Say-Ok "Geinstalleerd via $method"; $newly.Add($app.Name); $script:InstallOk.Add($app.Name) }
         else { Say-Bad 'Installatie MISLUKT - handmatig doen.'; $script:InstallFail.Add($app.Name) }
     }
@@ -814,6 +916,7 @@ function Action-HwTest {
 # ============================================================================
 function Invoke-Verification {
     $script:Results.Clear()
+    Update-SplashtopDownload
     $cutoff = (Get-Date).AddDays(-$Days)
     $cs = Get-CimInstance Win32_ComputerSystem
     $bios = Get-CimInstance Win32_BIOS
@@ -904,6 +1007,9 @@ function Invoke-Verification {
         foreach ($app in $expected) {
             if (-not $app.Match -and -not $app.Special) { continue }
             if (Test-AppInstalled $app $software) { Add-Check 'Software' "Verwacht: $($app.Name)" 'OK' 'Aanwezig' }
+            elseif ($app.Special -eq 'Splashtop' -and $script:SplashtopDownloadJob -and $script:SplashtopDownloadJob.State -eq 'Running') {
+                Add-Check 'Software' "In behandeling: $($app.Name)" 'INFO' 'Download loopt op de achtergrond; het bestand wordt geplaatst zodra de download klaar is.'
+            }
             else { Add-Check 'Software' "Verwacht: $($app.Name)" 'FAIL' 'Niet gevonden (kan per-gebruiker zijn - controleer manueel)' }
         }
         if ($PcType -eq 'Werk') {
@@ -1470,6 +1576,10 @@ function Invoke-MenuKey {
 }
 
 function Show-ExitSummary {
+    Update-SplashtopDownload
+    if ($script:SplashtopDownloadJob -and $script:SplashtopDownloadJob.State -eq 'Running') {
+        Say-Warn 'Splashtop wordt nog gedownload. Laat dit dashboard open om het bestand automatisch op het openbare bureaublad te plaatsen.'
+    }
     if ($script:Creds.Count) { Action-Credentials }
     if ($script:NeedReboot) {
         Say-Warn 'Een herstart is nodig (naamswijziging, verwijderde software of updates).'
@@ -1490,11 +1600,13 @@ if ($VerifyOnly) { $Run = @('11', '12') }
 
 if ($Run) {
     foreach ($k in $Run) { Invoke-MenuKey ($k.ToString().ToUpper()) }
+    Update-SplashtopDownload
     Show-ExitSummary
     return
 }
 
 while ($true) {
+    Update-SplashtopDownload
     if (-not $NoClear) { Clear-Host }
     Show-Dashboard
     Show-MenuBox
@@ -1503,6 +1615,7 @@ while ($true) {
     $keys = @($in -split '[,\s]+' | Where-Object { $_ })
     if ($keys -contains 'Q') { break }
     foreach ($k in $keys) { Invoke-MenuKey $k }
+    Update-SplashtopDownload
     Pause-Menu
 }
 Show-ExitSummary

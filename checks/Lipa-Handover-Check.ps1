@@ -73,9 +73,9 @@ $AppCatalog = @(
     @{ Name = 'OpenVPN Connect';       Winget = 'OpenVPNTechnologies.OpenVPNConnect'; Choco = 'openvpn-connect'; Match = '*OpenVPN Connect*'; Default = 'Werk' },
     @{ Name = 'VLC media player';      Winget = 'VideoLAN.VLC'; Choco = 'vlc'; Match = '*VLC*'; Default = 'Werk', 'Gaming' },
     @{ Name = 'Microsoft 365 Apps (licentie nodig)'; Winget = 'Microsoft.Office'; Choco = 'office365business', 'office365proplus'; Match = '*Microsoft 365*|*Office 16*'; Default = @(); Job = 'Office' },
-    @{ Name = 'Steam';                 Winget = 'Valve.Steam'; Choco = 'steam'; Match = 'Steam'; Default = 'Gaming' },
-    @{ Name = 'Epic Games Launcher';   Winget = 'EpicGames.EpicGamesLauncher'; Choco = 'epicgameslauncher'; Match = '*Epic Games Launcher*'; Default = 'Gaming' },
-    @{ Name = 'Discord';               Winget = 'Discord.Discord'; Choco = 'discord'; Match = '*Discord*'; Default = @() },
+    @{ Name = 'Steam';                 Winget = 'Valve.Steam'; Choco = 'steam'; Match = '*Steam*'; Default = 'Gaming'; GamingOnly = $true },
+    @{ Name = 'Epic Games Launcher';   Winget = 'EpicGames.EpicGamesLauncher'; Choco = 'epicgameslauncher'; Match = '*Epic Games Launcher*'; Default = 'Gaming'; GamingOnly = $true },
+    @{ Name = 'Discord';               Winget = 'Discord.Discord'; Choco = 'discord'; Match = '*Discord*'; Default = @(); GamingOnly = $true },
     @{ Name = 'HP programmable key';   Winget = '9MW15F21R5G8'; Default = 'Werk'; Vendor = 'HP' },
     @{ Name = 'HP Support Assistant';  Choco = 'hpsupportassistant'; Match = '*HP Support Assistant*'; Default = 'Werk'; Vendor = 'HP' },
     @{ Name = 'HP Image Assistant';    Winget = 'HP.ImageAssistant'; Choco = 'hpimageassistant'; Match = '*HP Image Assistant*'; Default = 'Werk'; Vendor = 'HP' }
@@ -649,6 +649,9 @@ function Install-Splashtop {
 
 function Install-App {
     param($App)
+    if ($App.GamingOnly -and $PcType -ne 'Gaming') {
+        throw "$($App.Name) mag niet op een werk-pc worden geïnstalleerd."
+    }
     if ($App.Special -eq 'Splashtop') { return $(if (Install-Splashtop) { 'download' } else { $null }) }
     if ($App.Winget -and (Get-Command winget -ErrorAction SilentlyContinue)) {
         $src = if ($App.Winget -match '^9[A-Z0-9]{11}$') { 'msstore' } else { 'winget' }
@@ -670,7 +673,10 @@ function Install-App {
 function Action-Software {
     Write-Section '8  Software installeren'
     if (-not (Get-Command winget -ErrorAction SilentlyContinue)) { Say-Warn 'winget niet gevonden - enkel Chocolatey/download-fallback beschikbaar.' }
-    $list = @($AppCatalog | Where-Object { -not $_.Vendor -or $_.Vendor -eq $vendor })
+    $list = @($AppCatalog | Where-Object {
+        (-not $_.Vendor -or $_.Vendor -eq $vendor) -and
+        (-not $_.GamingOnly -or $PcType -eq 'Gaming')
+    })
     $sel = @{}
     for ($i = 0; $i -lt $list.Count; $i++) {
         $sel[$i] = ((@($list[$i].Default) -contains $PcType) -or ($list[$i].Job -and $script:Job[$list[$i].Job]))
@@ -891,6 +897,7 @@ function Invoke-Verification {
 
         # Verwacht = wat je koos in menu 8, anders de standaard voor dit type + wat de opdracht vraagt
         $expected = @($AppCatalog | Where-Object {
+                (-not $_.GamingOnly -or $PcType -eq 'Gaming') -and
                 (-not $_.Vendor -or $_.Vendor -eq $vendor) -and
                 $(if ($script:SoftwareSelection.Count) { $script:SoftwareSelection -contains $_.Name } else { (@($_.Default) -contains $PcType) -or ($_.Job -and $script:Job[$_.Job]) })
             })
@@ -898,6 +905,18 @@ function Invoke-Verification {
             if (-not $app.Match -and -not $app.Special) { continue }
             if (Test-AppInstalled $app $software) { Add-Check 'Software' "Verwacht: $($app.Name)" 'OK' 'Aanwezig' }
             else { Add-Check 'Software' "Verwacht: $($app.Name)" 'FAIL' 'Niet gevonden (kan per-gebruiker zijn - controleer manueel)' }
+        }
+        if ($PcType -eq 'Werk') {
+            $workPcGamingApps = @(
+                foreach ($app in @($AppCatalog | Where-Object GamingOnly)) {
+                    foreach ($installedApp in $software) {
+                        if (Test-NameMatch $installedApp.Name $app.Match) { $installedApp.Name }
+                    }
+                }
+            ) | Sort-Object -Unique
+            if ($workPcGamingApps.Count) {
+                Add-Check 'Software' 'Gamingsoftware op werk-pc' 'WARN' ($workPcGamingApps -join ', ')
+            }
         }
         $tm = $software | Where-Object { Test-NameMatch $_.Name '*Trend Micro*|*Worry-Free*|*Security Agent*|*Apex One*' } | Select-Object -First 1
         if ($tm) { Add-Check 'Software' 'Trend Micro' 'OK' $tm.Name }

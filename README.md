@@ -1,6 +1,6 @@
 ### Deploy dashboard
 
-After the intake prompts, the framed dashboard stays open until you choose `Q`. No deployment action runs until you select it.
+On launch, the framed dashboard appears before deployment intake and stays open until you choose `Q`. No deployment action runs until you select it. Choose `6` to open the Handover Check directly without first completing deployment intake.
 
 | Choice | Action |
 | --- | --- |

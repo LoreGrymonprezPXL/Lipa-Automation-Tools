@@ -1298,7 +1298,7 @@ function Confirm-DeployChanges {
     param([string]$ActionName)
 
     if (-not $script:IsAuditOnly) { return $true }
-    return Read-YesNo "Audit-only was geselecteerd. Toch '$ActionName' uitvoeren?" $false
+    return (Read-YesNo "Audit-only was geselecteerd. Toch '$ActionName' uitvoeren?" $false)
 }
 
 function Invoke-DashboardAction {
@@ -1419,7 +1419,7 @@ try {
     }
 
     Write-Host ''
-    Write-Status 'Dashboard afgesloten. Bewaar de technische notitie beveiligd en verwijder ze na veilige opslag.' 'OK'
+    Write-Status 'Dashboard afgesloten.' 'OK'
     if ($script:NeedReboot) {
         Write-Status 'Een herstart is vereist om wijzigingen volledig toe te passen.' 'WARN'
     }

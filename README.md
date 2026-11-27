@@ -20,6 +20,7 @@ and integrations are added.
 ├── backup/
 │   └── BackupscriptLipa.ps1
 ├── checks/
+│   ├── Lipa-Deploy.ps1
 │   ├── Lipa-Handover-Check.ps1
 │   └── empty.txt
 ├── cloud-services/
@@ -241,3 +242,47 @@ sudo pgrep -af "softwareupdate|startosinstall"
   lowercase category only when the capability does not fit an existing one.
 - Update this README's structure and script list whenever files are added,
   moved, or renamed.
+
+
+## Windows 10/11 provisioning (Lipa-Deploy.ps1)
+
+[`checks/Lipa-Deploy.ps1`](checks/Lipa-Deploy.ps1) interactively prepares a Windows target device, optionally installs selected software, performs an inventory, and generates customer and internal ticket notes. It is intended for a technician at the device, not for unattended deployment.
+
+### Start on the target device
+
+**Run as:** Sign in as `Clientadmin` and open **64-bit Windows PowerShell 5.1** or **PowerShell 7** with **Run as administrator**.
+
+**Launch:** Run this command to download and start the current approved version from `main`:
+
+```powershell
+irm "https://raw.githubusercontent.com/LoreGrymonprezPXL/Lipa-Automation-Tools/refs/heads/main/checks/Lipa-Deploy.ps1" | iex
+```
+
+This runs the current contents of `main`; review the approved script before execution.
+
+**Prompts:** Enter customer, ticket, computer name and whether to create a local end-user account. Select the needed modules. Pressing Enter at the module prompt selects modules 1 and 2.
+
+| Choice | Action |
+| --- | --- |
+| 1 | Chrome, Firefox and Acrobat Reader; offers Foxit Reader, 7-Zip and VLC |
+| 2 | Installs Microsoft 365 Apps; does not sign in to a Microsoft 365 account |
+| 3 | Belgian e-ID middleware and viewer |
+| 4 | Removes the curated promotional-app list |
+| 5 | Offers OpenVPN Connect; does not join an AD domain |
+| 6 | Audit only; cannot be combined with configuration modules |
+
+A normal setup also starts/checks Windows Update and detected HP/Dell update tools. Review the technical note and warnings. Restart when the device name or updates require it, then verify the result.
+
+### Finish the end-user profile
+
+The script performs setup in the elevated `Clientadmin` session. It can create the local end-user account, but does not switch to that account or prepare its Windows profile.
+
+**After system setup:** Sign out of `Clientadmin`, then sign in once as the end user to create their Windows profile. Open a Microsoft 365 app and sign in interactively with the end user's work account. Office is installed by the script; the user's sign-in is not.
+
+**SOS Lipa:** Put the SOS Lipa (Splashtop) executable on the end user's desktop using the approved Splashtop process, while signed in as that user. The separate download/move steps use the current user's Downloads and Desktop folders. This script does not install SOS Lipa; its `Helpdesk Lipa ICT` shortcut is a shared link to `https://www.lipa.be`.
+
+Verify the end-user desktop, Microsoft 365 sign-in and required applications before handing over the device.
+
+### Ticket notes and passwords
+
+Both ticket blocks are saved to `C:\Temp\Lipa-Ticket-Output.txt`. The internal technical note contains local account passwords. Store them in Keeper, keep them out of the customer-facing note, then delete the output file and clear the clipboard if the blocks were copied. The script offers to remove its output file at the end; confirm cleanup after storing the passwords.

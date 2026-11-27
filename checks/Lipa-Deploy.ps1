@@ -1055,9 +1055,9 @@ function New-TicketOutput {
 
     $customerItems = New-Object 'System.Collections.Generic.List[object]'
     $customerItems.Add([pscustomobject]@{
-        Title = 'Ticketgegevens geregistreerd'
+        Title = 'Klantgegevens geregistreerd'
         Details = @(
-            "Klant: $script:CustomerName; ticket: $script:TicketNumber."
+            "Klant: $script:CustomerName."
         )
     })
 
@@ -1267,7 +1267,9 @@ function Invoke-HandoverCheck {
             $handoverPath = $temporaryPath
         }
 
-        & $handoverPath -CustomerName $script:CustomerName -TicketNr $script:TicketNumber -CustomerUser $script:EndUser -ExpectedHostname $script:ComputerName
+        $handoverScript = Get-Content -LiteralPath $handoverPath -Raw -ErrorAction Stop
+        $handoverBlock = [scriptblock]::Create($handoverScript)
+        & $handoverBlock -CustomerName $script:CustomerName -TicketNr $script:TicketNumber -CustomerUser $script:EndUser -ExpectedHostname $script:ComputerName
     }
     finally {
         if ($temporaryPath -and (Test-Path -LiteralPath $temporaryPath)) {

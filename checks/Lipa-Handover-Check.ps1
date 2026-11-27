@@ -105,29 +105,21 @@ $DebloatRules = @(
     @{ Level = 1; Kind = 'Appx';  Pattern = '*Hulu*';        Why = 'Promo-app' },
     @{ Level = 1; Kind = 'Appx';  Pattern = '*Booking*';     Why = 'Promo-app' },
     @{ Level = 1; Kind = 'Appx';  Pattern = '*AmazonPrimeVideo*'; Why = 'Promo-app' },
-    @{ Level = 2; Kind = 'Appx';  Pattern = '*Spotify*';     Why = 'Promo-app' },
-    @{ Level = 2; Kind = 'Appx';  Pattern = 'Clipchamp*';    Why = 'Videobewerker' },
     @{ Level = 2; Kind = 'Appx';  Pattern = 'Microsoft.MicrosoftSolitaireCollection'; Why = 'Spelletjes' },
-    @{ Level = 2; Kind = 'Appx';  Pattern = 'Microsoft.BingNews';    Why = 'Nieuws' },
-    @{ Level = 2; Kind = 'Appx';  Pattern = 'Microsoft.BingWeather'; Why = 'Weer' },
-    @{ Level = 2; Kind = 'Appx';  Pattern = 'Microsoft.GetHelp';     Why = 'Get Help' },
     @{ Level = 2; Kind = 'Appx';  Pattern = 'Microsoft.Getstarted';  Why = 'Tips' },
-    @{ Level = 2; Kind = 'Appx';  Pattern = 'Microsoft.WindowsFeedbackHub'; Why = 'Feedback Hub' },
-    @{ Level = 2; Kind = 'Appx';  Pattern = 'Microsoft.MicrosoftOfficeHub'; Why = 'Office-hub (promo)' },
     @{ Level = 2; Kind = 'Appx';  Pattern = 'Microsoft.549981C3F5F10';     Why = 'Cortana' },
-    @{ Level = 2; Kind = 'Appx';  Pattern = 'MSTeams';               Why = 'Teams (consumer)' },
-    @{ Level = 2; Kind = 'Appx';  Pattern = 'MicrosoftTeams';        Why = 'Teams (consumer)' },
-    @{ Level = 2; Kind = 'Appx';  Pattern = 'Microsoft.PowerAutomateDesktop'; Why = 'Power Automate' },
     @{ Level = 2; Kind = 'Appx';  Pattern = 'Microsoft.MixedReality.Portal';  Why = 'Mixed Reality' },
-    @{ Level = 2; Kind = 'Appx';  Pattern = 'Microsoft.People';      Why = 'People' },
+    @{ Level = 3; Kind = 'Appx';  Pattern = '*Spotify*';     Why = 'Optionele media-app' },
+    @{ Level = 3; Kind = 'Appx';  Pattern = 'Clipchamp*';    Why = 'Optionele videobewerker' },
+    @{ Level = 3; Kind = 'Appx';  Pattern = 'Microsoft.BingNews';    Why = 'Nieuws' },
+    @{ Level = 3; Kind = 'Appx';  Pattern = 'Microsoft.BingWeather'; Why = 'Weer' },
+    @{ Level = 3; Kind = 'Appx';  Pattern = 'Microsoft.People';      Why = 'Contacten-app' },
     @{ Level = 3; Kind = 'Appx';  Pattern = 'Microsoft.YourPhone';   Why = 'Phone Link' },
     @{ Level = 3; Kind = 'Appx';  Pattern = 'Microsoft.WindowsMaps'; Why = 'Kaarten' },
     @{ Level = 3; Kind = 'Appx';  Pattern = 'Microsoft.Copilot';     Why = 'Copilot-app' },
-    @{ Level = 3; Kind = 'Appx';  Pattern = 'Microsoft.OutlookForWindows'; Why = 'Nieuwe Outlook' },
     @{ Level = 3; Kind = 'Appx';  Pattern = 'MicrosoftCorporationII.MicrosoftFamily'; Why = 'Family' },
     @{ Level = 3; Kind = 'Appx';  Pattern = 'Microsoft.Windows.DevHome'; Why = 'Dev Home' },
-    @{ Level = 3; Kind = 'Appx';  Pattern = 'Microsoft.BingSearch';  Why = 'Bing-zoeken' },
-    @{ Level = 3; Kind = 'Win32'; Pattern = 'Microsoft 365 - *';     Why = 'Office-PROEFVERSIE (verwijdert ook betaalde Office!)' }
+    @{ Level = 3; Kind = 'Appx';  Pattern = 'Microsoft.BingSearch';  Why = 'Bing-zoeken' }
 )
 
 # ============================================================================
@@ -585,8 +577,8 @@ function Action-Debloat {
     }
     $lvl = Ask-Choice 'Hoe zwaar debloaten?' @(
         'Licht   - trial-antivirus, adware, promo-spelletjes/social apps',
-        'Medium  - + overbodige Microsoft-apps (Nieuws, Weer, Clipchamp, Solitaire, Teams, Tips, ...)',
-        'Zwaar   - + Phone Link, Kaarten, Copilot, nieuwe Outlook, Office-proefversie, ...',
+        'Medium  - + enkel niet-essentiële apps; Teams, Outlook, Office en Power Automate blijven',
+        'Zwaar   - + optionele apps (Spotify, Clipchamp, Nieuws/Weer) en extra Windows-functies',
         'Annuleren') 2
     if ($lvl -eq 4) { return }
     Say-Info 'Zoeken naar kandidaten...'
@@ -719,13 +711,34 @@ function Action-Updates {
     Write-Section '9  Windows Updates'
     try {
         [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor 3072
-        if (-not (Get-PackageProvider -Name NuGet -ListAvailable -ErrorAction SilentlyContinue)) {
-            Say-Info 'NuGet provider installeren...'; Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force -Confirm:$false | Out-Null
+        $executionPolicies = Get-ExecutionPolicy -List
+        $managedPolicy = @($executionPolicies | Where-Object {
+            $_.Scope -in @('MachinePolicy', 'UserPolicy') -and $_.ExecutionPolicy -ne 'Undefined'
+        }).Count -gt 0
+        $temporaryBypass = (Get-ExecutionPolicy) -eq 'Restricted' -and -not $managedPolicy
+        if ((Get-ExecutionPolicy) -eq 'Restricted' -and $managedPolicy) {
+            throw 'Execution Policy wordt door groepsbeleid beheerd. Laat de beheerder PSWindowsUpdate toestaan of voer Windows Updates uit via de goedgekeurde beheermethode.'
         }
-        if (-not (Get-Module -ListAvailable -Name PSWindowsUpdate)) {
-            Say-Info 'PSWindowsUpdate installeren...'; Install-Module -Name PSWindowsUpdate -Force -Confirm:$false
+
+        $previousProcessPolicy = Get-ExecutionPolicy -Scope Process
+        try {
+            if ($temporaryBypass) {
+                Say-Info 'Tijdelijk procesbeleid voor PSWindowsUpdate; dit wordt meteen na het laden hersteld.'
+                Set-ExecutionPolicy -ExecutionPolicy Bypass -Scope Process -Force -ErrorAction Stop
+            }
+            if (-not (Get-PackageProvider -Name NuGet -ListAvailable -ErrorAction SilentlyContinue)) {
+                Say-Info 'NuGet provider installeren...'; Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force -Confirm:$false | Out-Null
+            }
+            if (-not (Get-Module -ListAvailable -Name PSWindowsUpdate)) {
+                Say-Info 'PSWindowsUpdate installeren...'; Install-Module -Name PSWindowsUpdate -Force -Confirm:$false
+            }
+            Import-Module PSWindowsUpdate -ErrorAction Stop
         }
-        Import-Module PSWindowsUpdate -ErrorAction Stop
+        finally {
+            if ($temporaryBypass) {
+                Set-ExecutionPolicy -ExecutionPolicy $previousProcessPolicy -Scope Process -Force -ErrorAction Stop
+            }
+        }
     }
     catch { Say-Bad "PSWindowsUpdate niet beschikbaar: $($_.Exception.Message)"; return }
     Say-Info 'Zoeken naar updates (kan even duren)...'
